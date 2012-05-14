@@ -1,0 +1,409 @@
+/*
+ * Timer.cpp
+ *
+ * Copyright 2012 Germaneers GmbH
+ * Copyright 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
+ *
+ * This file is part of libopenstella.
+ *
+ * libopenstella is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * libopenstella is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with libopenstella.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+
+#include "Timer.h"
+#include <StellarisWare/inc/hw_memmap.h>
+#include <StellarisWare/inc/hw_types.h>
+#include <StellarisWare/inc/hw_ints.h>
+#include <StellarisWare/inc/hw_timer.h>
+#include <StellarisWare/driverlib/sysctl.h>
+#include <StellarisWare/driverlib/timer.h>
+#include <StellarisWare/driverlib/interrupt.h>
+#include <StellarisWare/driverlib/rom.h>
+#include <freertos/include/FreeRTOSConfig.h>
+
+Timer Timer::_timers[] = {
+		Timer(timer_0),
+		Timer(timer_1),
+		Timer(timer_2),
+		Timer(timer_3)
+};
+
+void Timer0Handler(void)
+{
+	Timer::_timers[0].handleInterrupt();
+}
+
+void Timer1Handler(void)
+{
+	Timer::_timers[1].handleInterrupt();
+}
+
+void Timer2Handler(void)
+{
+	Timer::_timers[2].handleInterrupt();
+}
+
+void Timer3Handler(void)
+{
+	Timer::_timers[3].handleInterrupt();
+}
+
+Timer::Timer(num_t num) :
+	_num(num),
+	_channel_A(new TimerChannel(num, channel_A)),
+	_channel_B(new TimerChannel(num, channel_B)),
+	_last_config(0)
+{
+}
+
+Timer::Timer(const Timer& t) :
+	_num(t._num),
+	_channel_A(t._channel_A),
+	_channel_B(t._channel_B)
+{
+}
+
+Timer *Timer::getTimer(num_t num)
+{
+	return &_timers[(uint8_t) num];
+}
+
+TimerChannel *Timer::getChannel(channel_t channel)
+{
+	if (channel==channel_A) {
+		return _channel_A;
+	} else {
+		return _channel_B;
+	}
+}
+
+TimerChannel *Timer::getChannelA()
+{
+	return _channel_A;
+}
+
+TimerChannel *Timer::getChannelB()
+{
+	return _channel_B;
+}
+
+uint32_t Timer::getBase()
+{
+	switch (_num) {
+		case timer_0:
+			return TIMER0_BASE;
+		case timer_1:
+			return TIMER1_BASE;
+		case timer_2:
+			return TIMER2_BASE;
+		case timer_3:
+			return TIMER3_BASE;
+		default:
+			return 0;
+	}
+}
+
+uint32_t Timer::getPeriph()
+{
+	switch (_num) {
+		case timer_0:
+			return SYSCTL_PERIPH_TIMER0;
+		case timer_1:
+			return SYSCTL_PERIPH_TIMER1;
+		case timer_2:
+			return SYSCTL_PERIPH_TIMER2;
+		case timer_3:
+			return SYSCTL_PERIPH_TIMER3;
+		default:
+			return 0;
+	}
+}
+
+void Timer::enablePeripheral()
+{
+	ROM_SysCtlPeripheralEnable(getPeriph());
+}
+
+void Timer::disablePeripheral()
+{
+	ROM_SysCtlPeripheralDisable(getPeriph());
+}
+
+void Timer::setType(type_t type)
+{
+	ROM_TimerConfigure(getBase(), (uint32_t) type);
+	_last_config = (uint32_t) type;
+}
+
+void Timer::setChannelType(channel_t channel, type_t type)
+{
+	uint32_t config = (_last_config & 0x0000FFFF) | TIMER_CFG_SPLIT_PAIR;
+	if (channel==channel_A) {
+		config &= ~0x00FF; // clear channel A config
+		config |= type;
+	} else {
+		config &= ~0xFF00; // clear channel B config
+		config |= type<<8;
+	}
+	ROM_TimerConfigure(getBase(), config);
+	_last_config = config;
+}
+
+void Timer::setInvertation(invertation_t invertation)
+{
+	ROM_TimerControlLevel(getBase(), TIMER_BOTH, (uint8_t) invertation);
+}
+
+void Timer::setTriggerOutput(bool enableTrigger)
+{
+	ROM_TimerControlTrigger(getBase(), TIMER_BOTH, enableTrigger ? 1 : 0);
+}
+
+void Timer::setEventType(edge_t edge)
+{
+	TimerControlEvent(getBase(), TIMER_BOTH, edge);
+}
+
+void Timer::setDebugMode(debug_mode_t mode)
+{
+	ROM_TimerControlStall(getBase(), TIMER_BOTH, (uint8_t)mode);
+}
+
+void Timer::enable()
+{
+	ROM_TimerEnable(getBase(), TIMER_BOTH);
+}
+
+void Timer::disable()
+{
+	ROM_TimerDisable(getBase(), TIMER_BOTH);
+}
+
+void Timer::enableRTC()
+{
+	ROM_TimerRTCEnable(getBase());
+}
+
+void Timer::disableRTC()
+{
+	ROM_TimerRTCDisable(getBase());
+}
+
+void Timer::setLoadValue(uint32_t load)
+{
+	ROM_TimerLoadSet(getBase(), TIMER_A, load);
+}
+
+uint32_t Timer::getLoadValue()
+{
+	return ROM_TimerLoadGet(getBase(), TIMER_A);
+}
+
+uint32_t Timer::getValue()
+{
+	return ROM_TimerValueGet(getBase(), TIMER_A);
+}
+
+void Timer::setMatchValue(uint32_t match)
+{
+	ROM_TimerMatchSet(getBase(), TIMER_A, match);
+}
+
+uint32_t Timer::getMatchValue()
+{
+	return ROM_TimerMatchGet(getBase(), TIMER_A);
+}
+
+void Timer::handleInterrupt(void)
+{
+}
+
+
+
+
+
+TimerChannel::TimerChannel(Timer::num_t timer_num, Timer::channel_t channel) :
+	_timer_num(timer_num),
+	_channel(channel)
+{
+}
+
+uint32_t TimerChannel::getBase()
+{
+	switch (_timer_num) {
+		case Timer::timer_0:
+			return TIMER0_BASE;
+		case Timer::timer_1:
+			return TIMER1_BASE;
+		case Timer::timer_2:
+			return TIMER2_BASE;
+		case Timer::timer_3:
+			return TIMER3_BASE;
+		default:
+			return 0;
+	}
+}
+
+uint16_t TimerChannel::getChannel()
+{
+	if (_channel==Timer::channel_A) {
+		return TIMER_A;
+	} else {
+		return TIMER_B;
+	}
+}
+
+void TimerChannel::setType(Timer::type_t type)
+{
+	Timer::getTimer(_timer_num)->setChannelType(_channel, type);
+}
+
+
+Timer::type_t TimerChannel::getType()
+{
+	uint32_t reg = HWREG(getBase() + ((_channel==Timer::channel_B) ? TIMER_O_TBMR : TIMER_O_TAMR));
+	reg &= 0x37;
+	return (Timer::type_t) reg;
+}
+
+void TimerChannel::setInvertation(Timer::invertation_t invertation)
+{
+	ROM_TimerControlLevel(getBase(), getChannel(), (uint8_t) invertation);
+}
+
+void TimerChannel::setTriggerOutput(bool enableTrigger)
+{
+	ROM_TimerControlTrigger(getBase(), getChannel(), enableTrigger ? 1 : 0);
+}
+
+void TimerChannel::setEventType(Timer::edge_t edge)
+{
+	TimerControlEvent(getBase(), getChannel(), edge);
+}
+
+void TimerChannel::setDebugMode(Timer::debug_mode_t mode)
+{
+	ROM_TimerControlStall(getBase(), getChannel(), (uint8_t)mode);
+}
+
+void TimerChannel::setLoadValue(uint16_t load)
+{
+	ROM_TimerLoadSet(getBase(), getChannel(), load);
+}
+
+uint16_t TimerChannel::getLoadValue()
+{
+	return ROM_TimerLoadGet(getBase(), getChannel());
+}
+
+uint16_t TimerChannel::getValue()
+{
+	return ROM_TimerValueGet(getBase(), getChannel());
+}
+
+void TimerChannel::setMatchValue(uint16_t match)
+{
+	ROM_TimerMatchSet(getBase(), getChannel(), match);
+}
+
+uint16_t TimerChannel::getMatchValue()
+{
+	return ROM_TimerMatchGet(getBase(), getChannel());
+}
+
+void TimerChannel::enableTimer()
+{
+	Timer::getTimer(_timer_num)->enable();
+}
+
+void TimerChannel::configurePWM(GPIOPin pin, uint16_t maxValue, uint16_t initialValue)
+{
+	Timer::getTimer(_timer_num)->enablePeripheral();
+	pin.enablePeripheral();
+	pin.configure(GPIOPin::Timer);
+
+	switch (_timer_num)  {
+		case Timer::timer_0:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP0(); } else { pin.mapAsCCP1(); }
+			break;
+		case Timer::timer_1:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP2(); } else { pin.mapAsCCP3(); }
+			break;
+		case Timer::timer_2:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP4(); } else { pin.mapAsCCP5(); }
+			break;
+		case Timer::timer_3:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP6(); } else { pin.mapAsCCP7(); }
+			break;
+		default:
+			while(1);
+	}
+
+	setType(Timer::pwm);
+	setLoadValue(maxValue);
+	setMatchValue(initialValue);
+}
+
+Timer *TimerChannel::getTimer()
+{
+	return Timer::getTimer(_timer_num);
+}
+
+uint8_t TimerChannel::getChannelNumber()
+{
+	switch (_timer_num)  {
+		case Timer::timer_0:
+			return (_channel == Timer::channel_A) ? 0 : 1;
+		case Timer::timer_1:
+			return (_channel == Timer::channel_A) ? 2 : 3;
+		case Timer::timer_2:
+			return (_channel == Timer::channel_A) ? 4 : 5;
+		case Timer::timer_3:
+			return (_channel == Timer::channel_A) ? 6 : 7;
+		default:
+			while(1);
+	}
+}
+
+void Timer::registerInterruptHandler(void(*pfnHandler)(void), half_t channel)
+{
+	TimerIntRegister(getBase(), channel, pfnHandler);
+}
+
+void Timer::enableInterrupt(uint32_t flags)
+{
+	switch (_num)  {
+		case Timer::timer_0:
+			ROM_IntPrioritySet(INT_TIMER0A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			ROM_IntPrioritySet(INT_TIMER0B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			break;
+		case Timer::timer_1:
+			ROM_IntPrioritySet(INT_TIMER1A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			ROM_IntPrioritySet(INT_TIMER1B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			break;
+		case Timer::timer_2:
+			ROM_IntPrioritySet(INT_TIMER2A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			ROM_IntPrioritySet(INT_TIMER2B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			break;
+		case Timer::timer_3:
+			ROM_IntPrioritySet(INT_TIMER3A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			ROM_IntPrioritySet(INT_TIMER3B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			break;
+		default:
+			while(1);
+	}
+	ROM_TimerIntEnable(getBase(), flags);
+}
+
