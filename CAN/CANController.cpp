@@ -68,7 +68,9 @@ CANController::CANController(CAN::channel_t channel, uint32_t periph, uint32_t b
 
 	for (uint8_t i=0; i<32; i++)
 	{
-		_mobs[i] = CANMessageObject(_channel, i+1);
+		//_mobs[i] = CANMessageObject(_channel, i+1);
+		_mobs[i].setChannel(channel);
+		_mobs[i].setMobNum(i+1);
 	}
 
 	_observers = createObserverListFragment();
@@ -172,6 +174,13 @@ void CANController::execute()
 	}
 }
 
+
+void ignore(void *data)
+{
+	return;
+}
+
+
 void CANController::handleInterrupt()
 {
 	while (uint32_t cause = ROM_CANIntStatus(_base, CAN_INT_STS_CAUSE))
@@ -179,6 +188,7 @@ void CANController::handleInterrupt()
 		if (cause == CAN_INT_INTID_STATUS) // status interrupt. error occurred?
 		{
 			uint32_t status = getControlRegister(); // also clears the interrupt
+			ignore(&status);
 			// TODO: error handling
 
 		} else if ( (cause >= 1) && (cause <= 32) ) // mailbox event

@@ -46,6 +46,8 @@ class CANMessageObject : public CANMessage {
 		CAN::message_type_t type;
 		uint32_t mask;
 
+		void setMobNum(uint8_t mobNum);
+		void setChannel(CAN::channel_t channel);
 		bool isTxIntEnabled();
 		void setTxIntEnabled(bool txIntEnabled);
 		bool isRxIntEnabled();
