@@ -317,7 +317,7 @@ CANController *CANController::get(CAN::channel_t channel)
 				handler = CAN0IntHandler;
 				break;
 			case CAN::channel_1:
-				base = CAN0_BASE;
+				base = CAN1_BASE;
 				periph = SYSCTL_PERIPH_CAN1;
 				handler = CAN1IntHandler;
 				break;
