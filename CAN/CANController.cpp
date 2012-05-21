@@ -133,6 +133,7 @@ void CANController::setup(CAN::bitrate_t bitrate, GPIOPin rxpin, GPIOPin txpin)
 		o->dlc = 8;
 		o->setRxIntEnabled(i<10);
 		o->setPartOfFIFO(i<9);
+		o->setUseIdFilter(i<10);
 		o->set(CAN::message_type_rx);
 	}
 
