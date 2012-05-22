@@ -27,7 +27,9 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <StellarisWare/inc/hw_memmap.h>
+#include <StellarisWare/inc/hw_uart.h>
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/sysctl.h>
@@ -305,6 +307,22 @@ void UARTController::write(char s[0])
 RecursiveMutex *UARTController::getMutex()
 {
 	return &_mutex;
+}
+
+void UARTController::setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin)
+{
+	setup(baudrate, wordlength_8bit, parity_none, stopbits_1, rxpin, txpin);
+	enableFIFO();
+	HWREG(_base + UART_O_LCTL) |= UART_LCTL_MASTER | UART_LCTL_BLEN_16T;
+	HWREG(_base + UART_O_CTL)  |= UART_CTL_LIN;
+}
+
+void UARTController::setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin)
+{
+	setup(baudrate, wordlength_8bit, parity_none, stopbits_1, rxpin, txpin);
+	enableFIFO();
+	HWREG(_base + UART_O_LCTL) |= UART_LCTL_BLEN_16T;
+	HWREG(_base + UART_O_CTL)  |= UART_CTL_LIN;
 }
 
 void UARTController::printf( const char* format, ... ) {

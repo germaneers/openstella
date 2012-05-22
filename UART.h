@@ -101,6 +101,9 @@ class UARTController
 		void setup(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits, GPIOPin rxpin, GPIOPin txpin);
 		void setup(uint32_t baudrate=115200, wordlength_t wordLength=wordlength_8bit, parity_t parity=parity_none, stopbits_t stopbits=stopbits_1);
 
+		void setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
+		void setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
+
 		void setParityMode(parity_t parity);
 		parity_t getParityMode(void);
 
