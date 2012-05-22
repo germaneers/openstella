@@ -33,16 +33,16 @@
 CANMessageObject::CANMessageObject() :
 	CANMessage::CANMessage(),
 	_channel(CAN::channel_0),
-	_mob_num(0)/*,
-	_mob_flags(0)*/
+	_mob_num(0),
+	_mob_flags(0)
 {
 }
 
 CANMessageObject::CANMessageObject(CAN::channel_t channel, uint8_t mob_num) :
 	CANMessage::CANMessage(),
 	_channel(channel),
-	_mob_num(mob_num)/*,
-	_mob_flags(0)*/
+	_mob_num(mob_num),
+	_mob_flags(0)
 {
 }
 
@@ -150,6 +150,17 @@ void CANMessageObject::clear()
 	CANMessageClear(getBase(), _mob_num);
 	get(false);
 }
+
+void CANMessageObject::setMobNum(uint8_t mobNum)
+{
+	_mob_num = mobNum;
+}
+
+void CANMessageObject::setChannel(CAN::channel_t channel)
+{
+	_channel = channel;
+}
+
 
 void CANMessageObject::get(bool clearPendingInterrupt)
 {
