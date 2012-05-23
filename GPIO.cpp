@@ -22,11 +22,14 @@
  */
 
 #include "GPIO.h"
+#include <freertos/include/FreeRTOSConfig.h>
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_memmap.h>
+#include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/rom.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/gpio.h>
+#include <StellarisWare/driverlib/interrupt.h>
 
 GPIOPort GPIO::A(0, SYSCTL_PERIPH_GPIOA, GPIO_PORTA_BASE);
 GPIOPort GPIO::B(1, SYSCTL_PERIPH_GPIOB, GPIO_PORTB_BASE);
@@ -177,6 +180,40 @@ void GPIOPort::disableADCTriggerPins(uint8_t pins) {
 	GPIOADCTriggerDisable(_base, pins);
 }
 
+void GPIOPort::registerInterruptHandler(void(*intHandler)(void))
+{
+	GPIOPortIntRegister(_base, intHandler);
+	IntPrioritySet(getInterruptNumber(), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+}
+
+void GPIOPort::unregisterInterruptHandler()
+{
+	GPIOPortIntUnregister(_base);
+}
+
+void GPIOPort::disableInterrupt(uint8_t pins) {
+	ROM_GPIOPinIntDisable(_base, pins);
+}
+
+inline uint32_t GPIOPort::getInterruptNumber()
+{
+	switch (_portNumber) {
+		case 0: return INT_GPIOA;
+		case 1: return INT_GPIOB;
+		case 2: return INT_GPIOC;
+		case 3: return INT_GPIOD;
+		case 4: return INT_GPIOE;
+		case 5: return INT_GPIOF;
+		case 6: return INT_GPIOG;
+		case 7: return INT_GPIOH;
+		case 9: return INT_GPIOJ;
+	}
+	return 0;
+}
+
+
+
+
 GPIOPin::GPIOPin(uint8_t port, uint8_t pin) {
 	_port_pin = ((port & 0x0F) << 4) | (pin & 0x0F);
 }
@@ -291,3 +328,41 @@ void GPIOPin::disableADCTrigger() {
 	getPort()->disableADCTriggerPins(getPins());
 }
 
+void GPIOPin::enableInterrupt()
+{
+	getPort()->enableInterruptPins(getPins());
+}
+
+void GPIOPin::disableInterrupt() {
+	getPort()->disableInterrupt(getPins());
+}
+
+void GPIOPort::setInterruptType(uint8_t pins, GPIOPin::interruptType_t intType)
+{
+    ROM_GPIOIntTypeSet(_base, pins, intType);
+}
+
+void GPIOPin::setInterruptType(interruptType_t intType)
+{
+	getPort()->setInterruptType(getPins(), intType);
+}
+
+void GPIOPort::enableInterrupt()
+{
+	IntEnable(getInterruptNumber());
+}
+
+void GPIOPort::enableInterruptPins(uint8_t pins)
+{
+	ROM_GPIOPinIntEnable(_base, pins);
+}
+
+void GPIOPin::clearInterrupt()
+{
+	getPort()->clearInterruptPins(getPins());
+}
+
+void GPIOPort::clearInterruptPins(uint8_t pins)
+{
+	ROM_GPIOPinIntClear(_base, pins);
+}

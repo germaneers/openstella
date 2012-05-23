@@ -112,6 +112,15 @@ class GPIOPin {
 			analog				 = 0x00
 		} padType_t;
 
+		typedef enum {
+			falling_edge = 0x00000000,
+			rising_edge  = 0x00000004,
+			both_edges   = 0x00000001,
+			low_level    = 0x00000002,
+			high_level   = 0x00000007,
+			discrete_int = 0x00010000
+		} interruptType_t;
+
 	private:
 		uint8_t _port_pin;
 		GPIOPin(uint8_t port, uint8_t pin);
@@ -212,6 +221,12 @@ class GPIOPin {
 		void disableDMATrigger();
 		void enableADCTrigger();
 		void disableADCTrigger();
+
+		void enableInterrupt();
+		void disableInterrupt();
+		void clearInterrupt();
+		void setInterruptType(interruptType_t intType);
+
 
 		/// get the corresponding GPIO port
 		/** @result the gpio port the pin belongs to */
@@ -339,6 +354,7 @@ class GPIOPort {
 		uint32_t _periph;
 		uint32_t _base;
 		GPIOPort(uint8_t portNumber, uint32_t periph, uint32_t base);
+		inline uint32_t getInterruptNumber();
 
 	public:
 		void enablePeripheral(void);
@@ -363,6 +379,15 @@ class GPIOPort {
 
 		void enableADCTriggerPins(uint8_t pins);
 		void disableADCTriggerPins(uint8_t pins);
+
+		void registerInterruptHandler(void (*intHandler)(void));
+		void unregisterInterruptHandler();
+		void disableInterrupt(uint8_t pins);
+		void setInterruptType(uint8_t pins, GPIOPin::interruptType_t intType);
+		void enableInterrupt();
+		void enableInterruptPins(uint8_t pins);
+		void clearInterruptPins(uint8_t pins);
+
 
 		GPIOPin getPin(uint8_t pin)  { return GPIOPin( _portNumber, pin ); }
 		GPIOPin operator[] (uint8_t pin) { return GPIOPin( _portNumber, pin ); }
