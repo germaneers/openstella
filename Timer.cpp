@@ -71,7 +71,8 @@ Timer::Timer(num_t num) :
 Timer::Timer(const Timer& t) :
 	_num(t._num),
 	_channel_A(t._channel_A),
-	_channel_B(t._channel_B)
+	_channel_B(t._channel_B),
+	_interruptCallback(0)
 {
 }
 
@@ -228,11 +229,10 @@ uint32_t Timer::getMatchValue()
 
 void Timer::handleInterrupt(void)
 {
+	if (_interruptCallback!=0) {
+		_interruptCallback->call();
+	}
 }
-
-
-
-
 
 TimerChannel::TimerChannel(Timer::num_t timer_num, Timer::channel_t channel) :
 	_timer_num(timer_num),
@@ -377,6 +377,29 @@ uint8_t TimerChannel::getChannelNumber()
 	}
 }
 
+uint32_t Timer::getInterruptNumber(channel_t channel)
+{
+	switch (_num)  {
+		case Timer::timer_0:
+			return (channel==channel_A) ? INT_TIMER0A : INT_TIMER0B;
+			break;
+		case Timer::timer_1:
+			return (channel==channel_A) ? INT_TIMER1A : INT_TIMER1B;
+			break;
+		case Timer::timer_2:
+			return (channel==channel_A) ? INT_TIMER2A : INT_TIMER2B;
+			break;
+		case Timer::timer_3:
+			return (channel==channel_A) ? INT_TIMER3A : INT_TIMER3B;
+			break;
+		default:
+			while (1);
+			break;
+	}
+	return 0;
+}
+
+
 void Timer::registerInterruptHandler(void(*pfnHandler)(void), half_t channel)
 {
 	TimerIntRegister(getBase(), channel, pfnHandler);
@@ -384,26 +407,44 @@ void Timer::registerInterruptHandler(void(*pfnHandler)(void), half_t channel)
 
 void Timer::enableInterrupt(uint32_t flags)
 {
-	switch (_num)  {
-		case Timer::timer_0:
-			ROM_IntPrioritySet(INT_TIMER0A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntPrioritySet(INT_TIMER0B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			break;
-		case Timer::timer_1:
-			ROM_IntPrioritySet(INT_TIMER1A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntPrioritySet(INT_TIMER1B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			break;
-		case Timer::timer_2:
-			ROM_IntPrioritySet(INT_TIMER2A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntPrioritySet(INT_TIMER2B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			break;
-		case Timer::timer_3:
-			ROM_IntPrioritySet(INT_TIMER3A, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntPrioritySet(INT_TIMER3B, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			break;
-		default:
-			while(1);
-	}
+	ROM_IntPrioritySet(getInterruptNumber(channel_A), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	ROM_IntPrioritySet(getInterruptNumber(channel_B), configMAX_SYSCALL_INTERRUPT_PRIORITY);
 	ROM_TimerIntEnable(getBase(), flags);
+	IntEnable(getInterruptNumber(channel_A));
+	//IntEnable(getInterruptNumber(channel_B));
 }
 
+uint32_t Timer::getInterruptStatus(bool returnMaskedStatus)
+{
+	return ROM_TimerIntStatus(getBase(), returnMaskedStatus);
+}
+
+void Timer::clearInterrupt(uint32_t flags)
+{
+	TimerIntClear(getBase(), flags);
+}
+
+void Timer::setInterruptCallback(VoidFunctorBase *callback)
+{
+	void(*handler)(void);
+	switch (_num) {
+		case timer_0:
+			handler = Timer0Handler;
+			break;
+		case timer_1:
+			handler = Timer1Handler;
+			break;
+		case timer_2:
+			handler = Timer2Handler;
+			break;
+		case timer_3:
+			handler = Timer3Handler;
+			break;
+		default:
+			handler=0;
+	}
+	if (handler) {
+		TimerIntRegister(getBase(), TIMER_BOTH, handler);
+	}
+	_interruptCallback = callback;
+}

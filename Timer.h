@@ -27,16 +27,17 @@
 
 #include <stdint.h>
 #include "GPIO.h"
+#include "VoidFunctor.h"
 
 class TimerChannel;
 
 class Timer
 {
 	friend class TimerChannel;
-	friend void Timer0Handler();
-	friend void Timer1Handler();
-	friend void Timer2Handler();
-	friend void Timer3Handler();
+	friend void Timer0Handler(void);
+	friend void Timer1Handler(void);
+	friend void Timer2Handler(void);
+	friend void Timer3Handler(void);
 
 	public:
 
@@ -116,7 +117,10 @@ class Timer
 		TimerChannel *_channel_A;
 		TimerChannel *_channel_B;
 		uint32_t _last_config;
+
+		VoidFunctorBase *_interruptCallback;
 		void handleInterrupt(void);
+		uint32_t getInterruptNumber(channel_t channel);
 
 
 	public:
@@ -152,6 +156,10 @@ class Timer
 
 		void registerInterruptHandler(void (*pfnHandler)(void), half_t channel);
 		void enableInterrupt(uint32_t flags);
+		void clearInterrupt(uint32_t flags);
+
+		uint32_t getInterruptStatus(bool returnMaskedStatus=true);
+		void setInterruptCallback(VoidFunctorBase *callback);
 
 };
 
