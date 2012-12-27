@@ -1,7 +1,6 @@
 /*
- * CANMessageNotifyObject.cpp
+ * USBHIDDevice.h
  *
- * Copyright 2012 Germaneers GmbH
  * Copyright 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
  *
  * This file is part of libopenstella.
@@ -22,27 +21,20 @@
  */
 
 
-#include "CANMessageNotifyObject.h"
+#ifndef USBHIDDEVICE_H_
+#define USBHIDDEVICE_H_
 
+#include "USBDevice.h"
+#include "USBHIDDeviceDescriptor.h"
 
-CANMessageNotifyObject::CANMessageNotifyObject()
-{
+class USBHIDDevice : public USBDevice {
+protected:
+	USBHIDDevice(USBController *controller=0);
 
-}
+	USBHIDDeviceDescriptor *getUSBHIDDeviceDescriptor() { return (USBHIDDeviceDescriptor*) _deviceDescriptor; }
+	virtual uint32_t getCompositeSize() { return COMPOSITE_DHID_SIZE; }
+	virtual tDeviceInfo *getDeviceInfoStruct()  { return &g_sHIDDeviceInfo; }
 
-CANMessageNotifyObject::CANMessageNotifyObject(CAN::channel_t channel, CANMessage *msg, uint8_t referenceCounter) :
-	CANMessage(*msg),
-	_channel(channel),
-	_referenceCounter(referenceCounter)
-{
-}
+};
 
-CAN::channel_t CANMessageNotifyObject::getChannel()
-{
-	return _channel;
-}
-
-void CANMessageNotifyObject::setReadyForGC()
-{
-	CANController::get(_channel)->returnMessageNotifyObject(this);
-}
+#endif /* USBHIDDEVICE_H_ */

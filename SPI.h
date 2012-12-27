@@ -84,9 +84,14 @@ private:
 
 	static SPIController* _controllers[CONTROLLER_COUNT];
 	SPIController(controller_num_t num);
+	void setupHardware();
+
 public:
-	void setup();
+	void enablePeripheral();
+	void setup(GPIOPin clk=GPIOPin(), GPIOPin rx=GPIOPin(), GPIOPin tx=GPIOPin(), GPIOPin fss=GPIOPin());
 	void configure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width);
+	void reconfigure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width);
+
 	uint16_t writeAndReadBlocking(uint16_t writeData);
 
 	static SPIController* get(controller_num_t num);

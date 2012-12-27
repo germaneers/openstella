@@ -22,6 +22,7 @@
  */
 
 #include "Mutex.h"
+#include "Task.h"
 
 Mutex::Mutex() :
 	_hnd(xSemaphoreCreateMutex())
@@ -44,8 +45,3 @@ bool Mutex::take(uint32_t timeout_ms)
 	return xSemaphoreTake(_hnd, (timeout_ms>0x3FFFFFFF) ? 0xFFFFFFFF : 4*timeout_ms) == pdTRUE;
 }
 
-void Mutex::giveFromISR()
-{
-	int32_t woken;
-	xSemaphoreGiveFromISR(_hnd, &woken);
-}

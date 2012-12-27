@@ -27,7 +27,7 @@
 
 #include <stdint.h>
 #include "GPIO.h"
-#include "VoidFunctor.h"
+#include "generics/VoidFunctor.h"
 
 class TimerChannel;
 
@@ -187,8 +187,10 @@ class TimerChannel {
 		void setMatchValue(uint16_t match);
 		uint16_t getMatchValue();
 		void enableTimer();
+		void disableTimer();
 
 		void configurePWM(GPIOPin pin, uint16_t maxValue=100, uint16_t initialValue=0);
+		void configureCounter(GPIOPin pin, Timer::edge_t edgeType=Timer::edge_positive, uint16_t loadValue=0xffff, uint16_t matchValue=0x0000);
 
 		uint8_t getChannelNumber();
 

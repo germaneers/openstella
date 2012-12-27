@@ -31,6 +31,8 @@
 void taskfunwrapper(void* parm);
 void taskfunctorwrapper(void* parm);
 
+#define runMethodAsNewTask(className, methodName) TaskFunctor<className> functor(this, &className::methodName); Task::runFunctor(&functor);
+
 class TaskFunctorBase {
 public:
 	virtual void call()=0;
@@ -120,7 +122,7 @@ class Task {
 		 * \include FunctorTask.h
 		 *
 		 */
-		void runFunctor(TaskFunctorBase *functor, char const *name=0, uint16_t stackSize=200, uint8_t priority=1);
+		static void runFunctor(TaskFunctorBase *functor, char const *name=0, uint16_t stackSize=200, uint8_t priority=1);
 
 		/// suspend the task.
 		/** the task will not be scheduled any more until resume() is called. */
@@ -156,6 +158,7 @@ class Task {
 
 		/// pass control to the next scheduled Task
 		static void yield();
+		static void yieldFromISR();
 
 		/// wait for delay ms
 		/**
@@ -181,6 +184,13 @@ class Task {
 		 * @return the number of milliseconds passed since the scheduler has been started.
 		 */
 		static uint32_t getTime();
+
+		/// get systick counter
+		/**
+		 * @return the number of systicks that happened since the scheduler has been started.
+		 *         one systick defaults to 250us in libopenstella.
+		 */
+		static uint32_t getSysticks();
 
 	protected:
 		/// task worker routine

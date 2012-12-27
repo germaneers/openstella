@@ -1,9 +1,8 @@
 /*
- * TCL59116Controller.h
+ * ServoController.h
  *
  * Copyright 2012 Germaneers GmbH
  * Copyright 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
- * Copyright 2012 Stefan Rupp (stefan.rupp@germaneers.com)
  *
  * This file is part of libopenstella.
  *
@@ -21,36 +20,23 @@
  * along with libopenstella.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
+#ifndef SERVOCONTROLLER_H_
+#define SERVOCONTROLLER_H_
 
+#include "../Timer.h"
+#include "../GPIO.h"
+#include "../OS/Task.h"
 
-#ifndef TLC59116CONTROLLER_H_
-#define TLC59116CONTROLLER_H_
-
-#include <openstella/I2CController.h>
-
-class TLC59116Controller {
-public:
-	typedef enum {
-		state_off = 0,
-		state_full_on = 1,
-		state_pwm = 2,
-		state_grouppwm = 3
-	} state_t;
-
+class ServoController : public Task {
 private:
-	uint8_t _addr;
-	I2CController *_i2c;
-	GPIOPin _resetPin;
-	uint8_t _ledoutShadow[4]; // shadow registers
-	void setRegister(uint8_t reg, uint8_t value);
-
+	GPIOPin _pin;
+	TimerChannel *_ch;
+	int _degrees;
 public:
-	TLC59116Controller(I2CController *i2c, uint8_t addr, GPIOPin resetPin);
-	void setup(uint8_t mode1=0x01, uint8_t mode2=0x00);
-	void setPWM(uint8_t ledNum, uint8_t value);
-	void setLedState(uint8_t ledNum, state_t state);
-	void setLedFullOn(uint8_t ledNum, bool isOn=true);
-	void setAllOn();
+	ServoController(GPIOPin pin, TimerChannel *ch);
+	virtual ~ServoController();
+	void setDegrees(int degrees);
+	virtual void execute();
 };
 
-#endif /* TLC59116CONTROLLER_H_ */
+#endif /* SERVOCONTROLLER_H_ */

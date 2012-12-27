@@ -33,8 +33,6 @@ CANCyclicMessage::CANCyclicMessage(CANMessage *msg, uint16_t interval, uint16_t 
 {
 }
 
-
-
 CANCyclicMessage::CANCyclicMessage(uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset) :
 	_interval(interval),
 	_offset(offset),
@@ -42,6 +40,16 @@ CANCyclicMessage::CANCyclicMessage(uint32_t id, uint8_t dlc, uint16_t interval, 
 {
 	_msg = new CANMessage(id, dlc);
 }
+
+CANCyclicMessage::CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset) :
+	_interval(interval),
+	_offset(offset),
+	_enabled(true)
+{
+	_msg = new CANMessage(id, dlc);
+	can->registerCyclicMessage(this);
+}
+
 
 
 
@@ -171,6 +179,17 @@ void CANCyclicMessage::setDataByte(uint8_t index, uint8_t value)
 	RecursiveMutexGuard guard(&_lock);
 	if (index<8) {
 		_msg->data[index] = value;
+	}
+}
+
+
+uint8_t CANCyclicMessage::getDataByte(uint8_t index)
+{
+	RecursiveMutexGuard guard(&_lock);
+	if (index<8) {
+		return _msg->data[index];
+	} else {
+		return 0;
 	}
 }
 

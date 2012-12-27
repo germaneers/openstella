@@ -25,16 +25,18 @@
 #define CANMESSAGE_H_
 
 #include <stdint.h>
-
+#include "CANtypes.h"
 /**
  * @class CANMessage
  * @brief data structure for CAN Messages
  */
+class CANController;
 
 class CANMessage {
 	friend class CANMessageObject;
 	protected:
 		uint8_t _flags;
+		CANController *_receivingController;
 	public:
 
 		/// the CAN ID of the message
@@ -46,7 +48,7 @@ class CANMessage {
 		/// message data. only valid in range [0..dlc-1]
 		uint8_t  data[8];
 
-		CANMessage(uint32_t id=0, uint8_t dlc=0);
+    	CANMessage(uint32_t id=0, uint8_t dlc=0);
 
 		/// is the message an extended message?
 		bool isExtendedId();
@@ -62,6 +64,13 @@ class CANMessage {
 		/** @param msg the source message */
 		void assign(const CANMessage *msg);
 
+		CAN::channel_t getReceivingChannel();
+		CANController *getReceivingController() const;
+		void setReceivingController(CANController *_receivingController);
+
+		uint64_t extractSignal(uint8_t startBit, uint8_t bitCount);
+
+		void returnMessageToPool();
 };
 
 #endif /* CANMESSAGE_H_ */

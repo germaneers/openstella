@@ -26,6 +26,7 @@
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/sysctl.h>
 
@@ -66,13 +67,13 @@ extern "C" {
 
 int main(void)
 {
-	ROM_SysCtlClockSet(SYSCTL_SYSDIV_4 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
+	MAP_SysCtlClockSet(SYSCTL_SYSDIV_4 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
 
 	IntRegister(FAULT_SVCALL, vPortSVCHandler);
 	IntRegister(FAULT_PENDSV, xPortPendSVHandler);
 	IntRegister(FAULT_SYSTICK, xPortSysTickHandler);
 
-	ROM_IntMasterEnable();
+	MAP_IntMasterEnable();
 	MainTask *mt = new MainTask();
 	mt->run();
 	vTaskStartScheduler();

@@ -24,23 +24,24 @@
 
 #include <cstddef>
 #include <stdlib.h>
+#include <freertos/include/FreeRTOS.h>
 
 void *operator new(size_t size)
 {
-    return malloc(size);
+    return pvPortMalloc(size);
 }
 
 void *operator new[](size_t size)
 {
-    return malloc(size);
+    return pvPortMalloc(size);
 }
 
 void operator delete(void *p)
 {
-    free(p);
+	vPortFree(p);
 }
 
 void operator delete[](void *p)
 {
-    free(p);
+	vPortFree(p);
 }

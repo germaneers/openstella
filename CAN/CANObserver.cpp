@@ -46,17 +46,17 @@ bool CANObserver::isCANMessageAvailable()
 
 bool CANObserver::getCANMessage(CANMessage *msg, uint32_t timeout)
 {
-	CANMessageNotifyObject *obj;
+	CANMessage *obj;
 	if (_queue.receive(&obj, timeout)) {
 		msg->assign(obj);
-		obj->setReadyForGC();
+		obj->returnMessageToPool();
 		return true;
 	} else {
 		return false;
 	}
 }
 
-bool CANObserver::notifyCANMessage(CANMessageNotifyObject *obj)
+bool CANObserver::notifyCANMessage(CANMessage *obj)
 {
 	return _queue.sendToBack(obj, 0);
 }

@@ -54,7 +54,7 @@ Task::Task(char const *name, uint16_t stackSize, uint8_t priority) :
 
 Task::~Task()
 {
-	free(_name);
+	vPortFree(_name);
 }
 
 void Task::run() {
@@ -74,8 +74,8 @@ void Task::stop()
 
 void Task::setTaskName(char const *newName)
 {
-	if (_name) { free(_name); }
-	_name = (char*) malloc( strlen(newName) + 1 );
+	if (_name) { vPortFree(_name); }
+	_name = (char*) pvPortMalloc( strlen(newName) + 1 );
 	strcpy(_name, newName);
 }
 
@@ -99,6 +99,11 @@ void Task::yield()
 	taskYIELD();
 }
 
+void Task::yieldFromISR()
+{
+	vPortYieldFromISR();
+}
+
 void Task::delay_ms(uint32_t delay) {
 	vTaskDelay((delay>0x3FFFFFFF) ? 0xFFFFFFFF : 4*delay);
 }
@@ -110,6 +115,11 @@ void Task::delay_ticks(uint32_t delay) {
 uint32_t Task::getTime()
 {
 	return xTaskGetTickCount()/4;
+}
+
+uint32_t Task::getSysticks()
+{
+	return xTaskGetTickCount();
 }
 
 void Task::setPriority(uint8_t priority)

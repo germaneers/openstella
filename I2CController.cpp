@@ -26,10 +26,15 @@
 #include "I2CController.h"
 
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/inc/hw_types.h>
+#include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/i2c.h>
+#include <StellarisWare/driverlib/interrupt.h>
+#include <openstella/OS/Task.h>
+#include <openstella/OS/Mutex.h>
 
 void I2C0IntHandler(void) {
 	I2CController::_controllers[0]->handleInterrupt();
@@ -40,20 +45,25 @@ void I2C1IntHandler(void) {
 }
 
 I2CController::I2CController(controller_t controller, uint32_t periph, uint32_t base)
- : _controller(controller), _periph(periph), _base(base), _sda(GPIO::A[0]), _scl(GPIO::A[0]), _lock()
+ : _controller(controller), _periph(periph), _base(base),
+   _sda(GPIO::A[0]), _scl(GPIO::A[0]),
+   _lock(),
+   _interruptSemaphore(),
+   _interruptsEnabled(false)
 {
 }
 
 void I2CController::handleInterrupt()
 {
-
+	I2CMasterIntClear(_base);
+	_interruptSemaphore.giveFromISR();
 }
 
 I2CController *I2CController::_controllers[controller_count];
 I2CController *I2CController::get(controller_t controller)
 {
-	static Mutex mutex;
-	mutex.take();
+	static Mutex lock;
+	MutexGuard guard(&lock);
 
 	if (!_controllers[controller])
 	{
@@ -71,18 +81,16 @@ I2CController *I2CController::get(controller_t controller)
 		}
 	}
 
-	mutex.give();
-
 	return _controllers[controller];
 }
 
-void I2CController::setup(GPIOPin sda, GPIOPin scl, speed_t speed)
+void I2CController::setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts)
 {
-	MutexGuard guard(&_lock);
+	RecursiveMutexGuard guard(&_lock);
 	_sda = sda;
 	_scl = scl;
 
-	ROM_SysCtlPeripheralEnable(_periph);
+	MAP_SysCtlPeripheralEnable(_periph);
 	SysCtlPeripheralReset(_periph);
 
 	_sda.enablePeripheral();
@@ -109,38 +117,49 @@ void I2CController::setup(GPIOPin sda, GPIOPin scl, speed_t speed)
 	}
 	_scl.configure(GPIOPin::I2CSCL);
 
-	I2CMasterInitExpClk(_base, ROM_SysCtlClockGet(), (speed==speed_400kBit) ? 1 : 0);
+	I2CMasterInitExpClk(_base, MAP_SysCtlClockGet(), (speed==speed_400kBit) ? 1 : 0);
 	I2CMasterEnable(_base);
+
+	if (doEnableInterrupts) enableInterrupts(true, true);
 
     // Do a dummy receive to make sure you don't get junk on the first receive.
     I2CMasterControl(_base, I2C_MASTER_CMD_SINGLE_RECEIVE);
-	while(I2CMasterBusy(_base));
-
+    waitFinish(1);
 }
 
-unsigned long I2CController::waitFinish()
+unsigned long I2CController::waitFinish(uint32_t timeout_ms)
 {
 	unsigned long ret;
 
-	while (I2CMasterBusy(_base)) {
-		ret = I2CMasterErr(_base);
-		if (ret != I2C_MASTER_ERR_NONE) {
-			return ret;
+	if (_interruptsEnabled) {
+		if (_interruptSemaphore.take(timeout_ms)) {
+			return I2CMasterErr(_base);
+		} else {
+			return 0xFFFFFFFF; // timeout;
 		}
+	} else {
+		uint32_t timeout_time = Task::getTime() + timeout_ms;
+		while (I2CMasterBusy(_base)) {
+			ret = I2CMasterErr(_base);
+			if (ret != I2C_MASTER_ERR_NONE) {
+				return ret;
+			}
+			if ( (timeout_ms!=0xFFFFFFFF) && (Task::getTime() > timeout_time) ) {
+				return 0xFFFFFFFF; // timeout;
+			}
+			Task::yield();
+		}
+		return I2CMasterErr(_base);
 	}
-	ret = I2CMasterErr(_base);
-	if (ret != I2C_MASTER_ERR_NONE) {
-		return ret;
-	}
-	return 0;
 }
 
-unsigned long I2CController::nolock_read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
 	if (count<1) return 0;
-	ret = nolock_read8(addr, buf, sendStartCondition, (sendStopCondition && count==1));
+	ret = read8(addr, buf, sendStartCondition, (sendStopCondition && count==1));
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -166,8 +185,9 @@ unsigned long I2CController::nolock_read(uint8_t addr, uint8_t *buf, int count, 
 	return 0;
 }
 
-unsigned long I2CController::nolock_read8(uint8_t addr, uint8_t *data, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::read8(uint8_t addr, uint8_t *data, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
 	I2CMasterSlaveAddrSet(_base, addr, 1);
@@ -197,12 +217,13 @@ unsigned long I2CController::nolock_read8(uint8_t addr, uint8_t *data, bool send
 	return 0;
 }
 
-unsigned long I2CController::nolock_write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
 	if (count<1) return 0;
-	nolock_write8(addr, buf[0], sendStartCondition, (count==1) && sendStopCondition);
+	write8(addr, buf[0], sendStartCondition, (count==1) && sendStopCondition);
 	ret = I2CMasterErr(_base);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
@@ -222,8 +243,9 @@ unsigned long I2CController::nolock_write(uint8_t addr, uint8_t *buf, int count,
   return 0;
 }
 
-unsigned long I2CController::nolock_write8(uint8_t addr, uint8_t data, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::write8(uint8_t addr, uint8_t data, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
 	I2CMasterSlaveAddrSet(_base, addr, 0);
@@ -252,41 +274,16 @@ unsigned long I2CController::nolock_write8(uint8_t addr, uint8_t data, bool send
 }
 
 
-
-
-unsigned long I2CController::read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
-{
-	MutexGuard guard(&_lock);
-	return nolock_read(addr, buf, count, sendStartCondition, sendStopCondition);
-}
-
-unsigned long I2CController::read8(uint8_t addr, uint8_t *data, bool sendStartCondition, bool sendStopCondition)
-{
-	MutexGuard guard(&_lock);
-	return nolock_read8(addr, data, sendStartCondition, sendStopCondition);
-}
-
-unsigned long I2CController::write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
-{
-	MutexGuard guard(&_lock);
-	return nolock_write(addr, buf, count, sendStartCondition, sendStopCondition);
-}
-
-unsigned long I2CController::write8(uint8_t addr, uint8_t data, bool sendStartCondition, bool sendStopCondition)
-{
-	return nolock_write8(addr, data, sendStartCondition, sendStopCondition);
-}
-
 unsigned long I2CController::writeRead(uint8_t addr, uint8_t *writeBuf, uint8_t writeCount, uint8_t *readBuf, uint8_t readCount, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
-	ret = nolock_write(addr, writeBuf, writeCount, sendStartCondition, false);
+	ret = write(addr, writeBuf, writeCount, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read(addr, readBuf, readCount, true, sendStopCondition);
+	ret = read(addr, readBuf, readCount, true, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -295,14 +292,14 @@ unsigned long I2CController::writeRead(uint8_t addr, uint8_t *writeBuf, uint8_t 
 
 unsigned long I2CController::write8read(uint8_t addr, uint8_t writeData, uint8_t *readBuf, int readCount, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
-	ret = nolock_write8(addr, writeData, sendStartCondition, false);
+	ret = write8(addr, writeData, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read(addr, readBuf, readCount, true, sendStopCondition);
+	ret = read(addr, readBuf, readCount, true, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -311,14 +308,14 @@ unsigned long I2CController::write8read(uint8_t addr, uint8_t writeData, uint8_t
 
 unsigned long I2CController::write8read8(uint8_t addr, uint8_t data_w, uint8_t *data_r, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
-	ret = nolock_write8(addr, data_w, sendStartCondition, false);
+	ret = write8(addr, data_w, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, data_r, true, sendStopCondition);
+	ret = read8(addr, data_r, true, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -327,15 +324,15 @@ unsigned long I2CController::write8read8(uint8_t addr, uint8_t data_w, uint8_t *
 
 unsigned long I2CController::read16(uint8_t addr, uint16_t *data, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
-	MutexGuard guard(&_lock);
+	RecursiveMutexGuard guard(&_lock);
 	uint8_t b1, b2;
 	unsigned long ret;
 
-	ret = nolock_read8(addr, &b1, sendStartCondition, false);
+	ret = read8(addr, &b1, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b2, false, sendStopCondition);
+	ret = read8(addr, &b2, false, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -350,23 +347,23 @@ unsigned long I2CController::read16(uint8_t addr, uint16_t *data, byteorder_t by
 
 unsigned long I2CController::read32(uint8_t addr, uint32_t *data, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
-	MutexGuard guard(&_lock);
+	RecursiveMutexGuard guard(&_lock);
 	uint8_t b1, b2, b3, b4;
 	unsigned long ret;
 
-	ret = nolock_read8(addr, &b1, sendStartCondition, false);
+	ret = read8(addr, &b1, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b2, false, false);
+	ret = read8(addr, &b2, false, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b3, false, false);
+	ret = read8(addr, &b3, false, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b4, false, sendStopCondition);
+	ret = read8(addr, &b4, false, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -381,24 +378,24 @@ unsigned long I2CController::read32(uint8_t addr, uint32_t *data, byteorder_t by
 
 unsigned long I2CController::write16(uint8_t addr, uint16_t data, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, data>>8,   sendStartCondition, false);
+		ret = write8(addr, data>>8,   sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data&0xFF, false, sendStopCondition);
+		ret = write8(addr, data&0xFF, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	} else {
-		ret = nolock_write8(addr, data&0xFF, sendStartCondition, false);
+		ret = write8(addr, data&0xFF, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>8,   false, sendStopCondition);
+		ret = write8(addr, data>>8,   false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
@@ -408,41 +405,40 @@ unsigned long I2CController::write16(uint8_t addr, uint16_t data, byteorder_t by
 
 unsigned long I2CController::write32(uint8_t addr, uint32_t data, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
-
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, data>>24, sendStartCondition, false);
+		ret = write8(addr, data>>24, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>16, false, false);
+		ret = write8(addr, data>>16, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>8,  false, false);
+		ret = write8(addr, data>>8,  false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data,     false, sendStopCondition);
+		ret = write8(addr, data,     false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	} else {
-		ret = nolock_write8(addr, data,     sendStartCondition, false);
+		ret = write8(addr, data,     sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>8,  false, false);
+		ret = write8(addr, data>>8,  false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>16, false, false);
+		ret = write8(addr, data>>16, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data>>24, false, sendStopCondition);
+		ret = write8(addr, data>>24, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
@@ -455,17 +451,17 @@ unsigned long I2CController::write8read16(uint8_t addr, uint8_t data_w, uint16_t
 	unsigned long ret;
 	uint8_t b1, b2;
 
-	MutexGuard guard(&_lock);
+	RecursiveMutexGuard guard(&_lock);
 
-	ret = nolock_write8(addr, data_w, sendStartCondition, false);
+	ret = write8(addr, data_w, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b1, true, false);
+	ret = read8(addr, &b1, true, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b2, false, sendStopCondition);
+	ret = read8(addr, &b2, false, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -481,27 +477,28 @@ unsigned long I2CController::write8read16(uint8_t addr, uint8_t data_w, uint16_t
 
 unsigned long I2CController::write8read32(uint8_t addr, uint8_t data_w, uint32_t *data_r, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
+
 	unsigned long ret;
 	uint8_t b1, b2, b3, b4;
-	MutexGuard guard(&_lock);
 
-	ret = nolock_write8(addr, data_w, sendStartCondition, false);
+	ret = write8(addr, data_w, sendStartCondition, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b1, true, false);
+	ret = read8(addr, &b1, true, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b2, false, false);
+	ret = read8(addr, &b2, false, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b3, false, false);
+	ret = read8(addr, &b3, false, false);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
-	ret = nolock_read8(addr, &b4, false, sendStopCondition);
+	ret = read8(addr, &b4, false, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -517,29 +514,30 @@ unsigned long I2CController::write8read32(uint8_t addr, uint8_t data_w, uint32_t
 
 unsigned long I2CController::write16read(uint8_t addr, uint16_t writeData, uint8_t *readBuf, int readCount, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
+
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, writeData>>8,   sendStartCondition, false);
+		ret = write8(addr, writeData>>8,   sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, writeData&0xFF, false, false);
+		ret = write8(addr, writeData&0xFF, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	} else {
-		ret = nolock_write8(addr, writeData&0xFF, sendStartCondition, false);
+		ret = write8(addr, writeData&0xFF, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, writeData>>8,   false, false);
+		ret = write8(addr, writeData>>8,   false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	}
-	ret = nolock_read(addr, readBuf, readCount, true, sendStopCondition);
+	ret = read(addr, readBuf, readCount, true, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -549,29 +547,30 @@ unsigned long I2CController::write16read(uint8_t addr, uint16_t writeData, uint8
 
 unsigned long I2CController::write16read8(uint16_t addr, uint16_t data_w, uint8_t *data_r, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
+
 	unsigned long ret;
 
-	MutexGuard guard(&_lock);
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, data_w>>8,   sendStartCondition, false);
+		ret = write8(addr, data_w>>8,   sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w&0xFF, false, false);
+		ret = write8(addr, data_w&0xFF, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	} else {
-		ret = nolock_write8(addr, data_w&0xFF, sendStartCondition, false);
+		ret = write8(addr, data_w&0xFF, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w>>8,   false, false);
+		ret = write8(addr, data_w>>8,   false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 	}
-	ret = nolock_read8(addr, data_r, true, sendStopCondition);
+	ret = read8(addr, data_r, true, sendStopCondition);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -580,42 +579,43 @@ unsigned long I2CController::write16read8(uint16_t addr, uint16_t data_w, uint8_
 
 unsigned long I2CController::write16read16(uint16_t addr, uint16_t data_w, uint16_t *data_r, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
+
 	unsigned long ret;
 	uint8_t b1, b2;
 
-	MutexGuard guard(&_lock);
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, data_w>>8,   sendStartCondition, false);
+		ret = write8(addr, data_w>>8,   sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w&0xFF, false, false);
+		ret = write8(addr, data_w&0xFF, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b1, true, false);
+		ret = read8(addr, &b1, true, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b2, false, sendStopCondition);
+		ret = read8(addr, &b2, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 		*data_r = (b1<<8) | b2;
 	} else {
-		ret = nolock_write8(addr, data_w&0xFF, sendStartCondition, false);
+		ret = write8(addr, data_w&0xFF, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w>>8,   false, false);
+		ret = write8(addr, data_w>>8,   false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b1, true, false);
+		ret = read8(addr, &b1, true, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b2, false, sendStopCondition);
+		ret = read8(addr, &b2, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
@@ -624,60 +624,85 @@ unsigned long I2CController::write16read16(uint16_t addr, uint16_t data_w, uint1
 	return 0;
 }
 
+void I2CController::enableInterrupts(bool enableTimeoutInterrupt, bool enableDataInterrupt)
+{
+	uint32_t INT;
+	switch (_controller) {
+		case controller_0:
+			INT = INT_I2C0;
+			break;
+		case controller_1:
+			INT = INT_I2C1;
+			break;
+		default:
+			while(1);
+	}
+	uint32_t flags = 0;
+	if (enableTimeoutInterrupt) flags |= I2C_MASTER_INT_TIMEOUT;
+	if (enableDataInterrupt) flags |= I2C_MASTER_INT_DATA;
+
+	_interruptSemaphore.take(0); // reset pending interrupt mutex
+	MAP_IntPrioritySet(INT, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	I2CMasterIntEnableEx(_base, flags);
+	IntEnable(INT);
+	_interruptsEnabled = true;
+}
+
 unsigned long I2CController::write16read32(uint16_t addr, uint16_t data_w, uint32_t *data_r, byteorder_t byteorder, bool sendStartCondition, bool sendStopCondition)
 {
+	RecursiveMutexGuard guard(&_lock);
+
 	unsigned long ret;
 	uint8_t b1, b2, b3, b4;
 
-	MutexGuard guard(&_lock);
 	if (byteorder==byteorder_big_endian) {
-		ret = nolock_write8(addr, data_w>>8,   sendStartCondition, false);
+		ret = write8(addr, data_w>>8,   sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w&0xFF, false, false);
+		ret = write8(addr, data_w&0xFF, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b1, true, false);
+		ret = read8(addr, &b1, true, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b2, false, false);
+		ret = read8(addr, &b2, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b3, false, false);
+		ret = read8(addr, &b3, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b4, false, sendStopCondition);
+		ret = read8(addr, &b4, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
 		*data_r = (b1<<24) | (b2<<16) | (b3<<8) | b4;
 	} else {
-		ret = nolock_write8(addr, data_w&0xFF, sendStartCondition, false);
+		ret = write8(addr, data_w&0xFF, sendStartCondition, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_write8(addr, data_w>>8,   false, false);
+		ret = write8(addr, data_w>>8,   false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b1, true, false);
+		ret = read8(addr, &b1, true, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b2, false, false);
+		ret = read8(addr, &b2, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b3, false, false);
+		ret = read8(addr, &b3, false, false);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = nolock_read8(addr, &b4, false, sendStopCondition);
+		ret = read8(addr, &b4, false, sendStopCondition);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}

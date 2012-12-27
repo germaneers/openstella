@@ -39,6 +39,7 @@ class Semaphore
 		bool take(uint32_t timeout_ms = portMAX_DELAY);
 		bool give();
 		bool giveFromISR(int32_t *higherPriorityTaskWoken);
+		bool giveFromISR();
 };
 
 #endif /* SEMAPHORE_H_ */

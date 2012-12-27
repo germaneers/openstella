@@ -31,32 +31,21 @@
 #include "OS/RecursiveMutex.h"
 #include "GPIO.h"
 
-class UARTController;
-
-class UART
-{
-	public:
-		static UARTController UART0;
-		static UARTController UART1;
-		static UARTController UART2;
-};
-
-
 class UARTController
 {
-	friend class UART;
-	private:
-		uint8_t  _portNumber;
-		uint32_t _periph;
-		uint32_t _base;
-		Queue<uint8_t> _queue;
-		RecursiveMutex _mutex;
-
-		UARTController(uint8_t portNumber, uint32_t periph, uint32_t base);
-
+	friend void UART0IntHandler(void);
+	friend void UART1IntHandler(void);
+	friend void UART2IntHandler(void);
 
 	public:
+
 		void handleInterrupt();
+
+		typedef enum {
+			controller_0,
+			controller_1,
+			controller_2
+		} controller_num_t;
 
 		typedef enum {
 			wordlength_5bit = 0x00,
@@ -94,15 +83,44 @@ class UARTController
 			fifo_rx_level_7_8 = 0x20
 		} fifo_rx_level_t;
 
+	private:
+		controller_num_t _num;
+		uint32_t _periph;
+		uint32_t _base;
+
+		Queue<uint8_t> _queue;
+		RecursiveMutex _mutex;
+
+		static UARTController *_instances[3];
+		UARTController(controller_num_t num);
+		UARTController(uint8_t portNumber, uint32_t periph, uint32_t base);
+
+		bool _enabled;
+		uint32_t _baudrate;
+		wordlength_t _wordlength;
+		parity_t _parity;
+		stopbits_t _stopbits;
+
+
+	public:
+
+		static UARTController *get(controller_num_t num);
+
 		RecursiveMutex *getMutex();
+		void enablePeripheral();
 		void enable();
 		void disable();
 
-		void setup(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits, GPIOPin rxpin, GPIOPin txpin);
-		void setup(uint32_t baudrate=115200, wordlength_t wordLength=wordlength_8bit, parity_t parity=parity_none, stopbits_t stopbits=stopbits_1);
+		void setup(GPIOPin rxpin=GPIOPin::invalid, GPIOPin txpin=GPIOPin::invalid, uint32_t baudrate=115200, wordlength_t wordLength=wordlength_8bit, parity_t parity=parity_none, stopbits_t stopbits=stopbits_1);
 
 		void setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
 		void setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
+		void setLineParameters(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits);
+		uint32_t getBaudrate();
+		wordlength_t getWordLength();
+		parity_t getParity();
+		stopbits_t getStopBits();
+
 
 		void setParityMode(parity_t parity);
 		parity_t getParityMode(void);
@@ -148,9 +166,14 @@ class UARTController
 
 		// TODO: scanf?
 
-		void write( char *s);
-		void write(const char *s, int len);
+		void write( const void * const s);
+		void write(const void * const s, int len);
 		void printf( const char* format, ... );
+
+		void read(void *buf, int bufSize);
+		int readUntil(const void *buf, int bufSize, uint8_t terminator);
+		int readUntil(const void *buf, int bufSize, const void * const terminator, int terminatorLength);
+		int readLine(const void *buf, int bufSize);
 
 };
 

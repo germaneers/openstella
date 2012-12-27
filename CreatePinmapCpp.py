@@ -4,7 +4,7 @@
   convert_pinmap.py
   
   converts pin_map.h from TIs driverlib to methods for libopenstellas GPIOPin class
-  usage: python convert_pinmap.py StellarisWare/driverlib/pin_map.h > openstella/PinMap.cpp 
+  usage:  cat ../StellarisWare/driverlib/pin_map.h | python CreatePinmapCpp.py > PinMap.cpp 
  
   Copyright 2011, 2012 Germaneers GmbH
   Copyright 2011, 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
@@ -52,7 +52,10 @@ for line in sys.stdin:
 print """
 #include "GPIO.h"
 #include <stdint.h>
+#include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/gpio.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/driverlib/pin_map.h>
 """
 for part in data:
@@ -67,7 +70,7 @@ for part in data:
 				print "\t\tcase 0x%02x: cfg = GPIO_P%s%s_%s; break; // port %s, pin %s" % (portNum(port)<<4 | int(pin), port, pin, func, port, pin)
 		print "\t\tdefault: while(1);"
 		print "\t}"
-		print "\tROM_GPIOPinConfigure(cfg);"
+		print "\tMAP_GPIOPinConfigure(cfg);"
 		print "}\n"
 
 	print "#endif"

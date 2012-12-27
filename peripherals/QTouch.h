@@ -25,8 +25,8 @@
 #ifndef QTOUCH_H_
 #define QTOUCH_H_
 
-#include "SPI.h"
-#include "GPIO.h"
+#include "../SPI.h"
+#include "../GPIO.h"
 
 class QTouch {
 private:

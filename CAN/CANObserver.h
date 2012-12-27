@@ -52,8 +52,8 @@ class CANObserver
 	friend class CANController;
 
 	private:
-		Queue<CANMessageNotifyObject*> _queue;
-		bool notifyCANMessage(CANMessageNotifyObject *obj);
+		Queue<CANMessage*> _queue;
+		bool notifyCANMessage(CANMessage *obj);
 
 	public:
 		/** call this from your derived classes constructor.

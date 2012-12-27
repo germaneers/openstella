@@ -24,9 +24,7 @@
 
 #include "QTouch.h"
 
-//#include "FreeRTOS.h"
-//#include "task.h"
-#include <openstella/OS/Task.h>
+#include "../OS/Task.h"
 
 #include "assert.h"
 

@@ -29,6 +29,7 @@
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/driverlib/can.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 
 CANMessageObject::CANMessageObject() :
 	CANMessage::CANMessage(),
@@ -166,7 +167,7 @@ void CANMessageObject::get(bool clearPendingInterrupt)
 {
 	tCANMsgObject msgobj;
 	msgobj.pucMsgData = data;
-	ROM_CANMessageGet(getBase(), _mob_num, &msgobj, clearPendingInterrupt);
+	MAP_CANMessageGet(getBase(), _mob_num, &msgobj, clearPendingInterrupt);
 	id   = msgobj.ulMsgID;
 	mask = msgobj.ulMsgIDMask;
 	dlc  = msgobj.ulMsgLen;
@@ -192,5 +193,5 @@ void CANMessageObject::set(CAN::message_type_t msgtype)
 	msgobj.ulMsgLen = dlc;
 	msgobj.pucMsgData = data;
 	msgobj.ulFlags = _flags | _mob_flags;
-	ROM_CANMessageSet(getBase(), _mob_num, &msgobj, (tMsgObjType)msgtype);
+	MAP_CANMessageSet(getBase(), _mob_num, &msgobj, (tMsgObjType)msgtype);
 }

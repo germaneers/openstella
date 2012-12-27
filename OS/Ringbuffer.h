@@ -59,9 +59,9 @@ class Ringbuffer
 		 * @param size maximum numer of items the ringbuffer can hold
 		 */
 		Ringbuffer(int size=10) : _size(size), _begin(0), _end(0), _count(0) {
-			_data = (T*) malloc(sizeof(T)*_size);
+			_data = (T*) pvPortMalloc(sizeof(T)*_size);
 		}
-		virtual ~Ringbuffer() { free(_data); }
+		virtual ~Ringbuffer() { vPortFree(_data); }
 
 		/// get the size (in items) of the ringbuffer
 		unsigned int size() { return _size; }

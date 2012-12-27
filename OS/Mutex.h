@@ -61,11 +61,6 @@ class Mutex
 		 */
 		bool give();
 
-		/// release the Mutex, if taken
-		/**
-		 * \warning only use this method from within an ISR. use give() otherwise!
-		 */
-		void giveFromISR();
 };
 
 /**

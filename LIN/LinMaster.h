@@ -1,5 +1,5 @@
 /*
- * ServoController.h
+ * LinMaster.h
  *
  * Copyright 2012 Germaneers GmbH
  * Copyright 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
@@ -20,23 +20,22 @@
  * along with libopenstella.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-#ifndef SERVOCONTROLLER_H_
-#define SERVOCONTROLLER_H_
 
-#include <openstella/Timer.h>
-#include <openstella/GPIO.h>
-#include <openstella/OS/Task.h>
+#ifndef LINMASTER_H_
+#define LINMASTER_H_
 
-class ServoController : public Task {
+#include "LinSlave.h"
+
+class LinMaster : public LinSlave {
 private:
-	GPIOPin _pin;
-	TimerChannel *_ch;
-	int _degrees;
+
+protected:
+	virtual void execute(void) = 0;
+	void sendIdAndDelay(uint8_t id, uint32_t delay);
 public:
-	ServoController(GPIOPin pin, TimerChannel *ch);
-	virtual ~ServoController();
-	void setDegrees(int degrees);
-	virtual void execute();
+	LinMaster(UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin);
+	void setup();
+
 };
 
-#endif /* SERVOCONTROLLER_H_ */
+#endif /* LINMASTER_H_ */

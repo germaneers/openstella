@@ -28,6 +28,7 @@
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/ssi.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 
 SPIController* SPIController::_controllers[SPIController::CONTROLLER_COUNT];
 
@@ -53,37 +54,57 @@ SPIController::SPIController(controller_num_t num)
 	_read_mask = 0xFFFF;
 }
 
-void SPIController::setup()
+void SPIController::enablePeripheral()
 {
-	ROM_SysCtlPeripheralEnable(_periph);
+	MAP_SysCtlPeripheralEnable(_periph);
+}
 
-	_clk.enablePeripheral();
-	_fss.enablePeripheral();
-	_rx.enablePeripheral();
-	_tx.enablePeripheral();
+void SPIController::setupHardware()
+{
+	enablePeripheral();
+
+	if (_clk.isValid()) { _clk.enablePeripheral(); }
+	if (_fss.isValid()) { _fss.enablePeripheral(); }
+	if (_rx.isValid())  { _rx.enablePeripheral(); }
+	if (_tx.isValid())  { _tx.enablePeripheral(); }
 
 	if (_num==CONTROLLER_0) {
-		_clk.mapAsSSI0CLK();
-		_fss.mapAsSSI0FSS();
-		_rx.mapAsSSI0RX();
-		_tx.mapAsSSI0TX();
+		if (_clk.isValid()) { _clk.mapAsSSI0CLK(); }
+		if (_fss.isValid()) { _fss.mapAsSSI0FSS(); }
+		if (_rx.isValid())  { _rx.mapAsSSI0RX(); }
+		if (_tx.isValid())  { _tx.mapAsSSI0TX(); }
 	} else {
-		_clk.mapAsSSI1CLK();
-		_fss.mapAsSSI1FSS();
-		_rx.mapAsSSI1RX();
-		_tx.mapAsSSI1TX();
+		if (_clk.isValid()) { _clk.mapAsSSI1CLK(); }
+		if (_fss.isValid()) { _fss.mapAsSSI1FSS(); }
+		if (_rx.isValid()) { _rx.mapAsSSI1RX(); }
+		if (_tx.isValid()) { _tx.mapAsSSI1TX(); }
 	}
 
-	_clk.configure(GPIOPin::SSI);
-	_fss.configure(GPIOPin::SSI);
-	_rx.configure(GPIOPin::SSI);
-	_tx.configure(GPIOPin::SSI);
+	if (_clk.isValid()) { _clk.configure(GPIOPin::SSI); }
+	if (_fss.isValid()) { _fss.configure(GPIOPin::SSI); }
+	if (_rx.isValid()) { _rx.configure(GPIOPin::SSI); }
+	if (_tx.isValid()) { _tx.configure(GPIOPin::SSI); }
+}
+
+void SPIController::setup(GPIOPin clk, GPIOPin rx, GPIOPin tx, GPIOPin fss)
+{
+	_clk = clk;
+	_rx = rx;
+	_tx = tx;
+	_fss = fss;
+	setupHardware();
 }
 
 void SPIController::configure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width)
 {
+	setupHardware();
+	reconfigure(protocol, mode, bitrate, data_width);
+}
+
+void SPIController::reconfigure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width)
+{
 	_data_width = data_width;
-	SSIConfigSetExpClk(_base, ROM_SysCtlClockGet(), protocol, mode, bitrate, data_width);
+	SSIConfigSetExpClk(_base, MAP_SysCtlClockGet(), protocol, mode, bitrate, data_width);
 	SSIEnable(_base);
 
     // empty receive fifos
@@ -95,7 +116,6 @@ void SPIController::configure(protocol_t protocol, mode_t mode, uint32_t bitrate
     for (uint8_t i=0; i<data_width; i++) {
     	_read_mask |= (1<<i);
     }
-
 }
 
 SPIController* SPIController::get(controller_num_t num)
@@ -114,5 +134,8 @@ uint16_t SPIController::writeAndReadBlocking(uint16_t writeData)
     SSIDataGet(_base, &result);
     return result & _read_mask;
 }
+
+
+
 
 

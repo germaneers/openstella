@@ -22,6 +22,7 @@
  */
 
 #include "CANMessage.h"
+#include "CANController.h"
 
 #include <string.h>
 #include <StellarisWare/inc/hw_types.h>
@@ -29,7 +30,7 @@
 #include <StellarisWare/driverlib/can.h>
 
 CANMessage::CANMessage(uint32_t id, uint8_t dlc)
-  : _flags(0), id(id), dlc(dlc)
+  : _flags(0), _receivingController(0), id(id), dlc(dlc)
 {
 	memset(data, 0, 8);
 	setExtendedId(id>=0x800);
@@ -64,11 +65,53 @@ void CANMessage::setRemoteFrame(bool remote)
 	}
 }
 
+CANController *CANMessage::getReceivingController() const
+{
+    return _receivingController;
+}
+
+CAN::channel_t CANMessage::getReceivingChannel()
+{
+	if (!_receivingController) {
+		return CAN::channel_none;
+	}
+	return _receivingController->getChannel();
+}
+
+void CANMessage::setReceivingController(CANController *_receivingController)
+{
+    this->_receivingController = _receivingController;
+}
+
 void CANMessage::assign(const CANMessage *msg)
 {
 	_flags = msg->_flags;
+	_receivingController = msg->_receivingController;
 	id = msg->id;
 	dlc = msg->dlc;
 	memcpy(data, msg->data, sizeof(data));
+}
+
+void CANMessage::returnMessageToPool()
+{
+	_receivingController->returnMessageToPool(this);
+}
+
+uint64_t CANMessage::extractSignal(uint8_t startBit, uint8_t bitCount)
+{
+	if ( (startBit+bitCount) > 64) { return 0; }
+
+	uint64_t result = (data[0])
+					| ((uint64_t)data[1]<<8)
+					| ((uint64_t)data[2]<<16)
+					| ((uint64_t)data[3]<<24)
+			        | ((uint64_t)data[4]<<32)
+			        | ((uint64_t)data[5]<<40)
+			        | ((uint64_t)data[6]<<48)
+			        | ((uint64_t)data[7]<<56);
+	result >>= startBit;
+	result  &= (0xFFFFFFFFFFFFFFFF >> (64-bitCount));
+
+	return result;
 }
 

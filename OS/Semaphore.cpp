@@ -22,6 +22,7 @@
  */
 
 #include "Semaphore.h"
+#include <openstella/OS/Task.h>
 
 Semaphore::Semaphore()
 {
@@ -29,9 +30,15 @@ Semaphore::Semaphore()
 	if (_hnd==0) while(1);
 }
 
-Semaphore::~Semaphore()
+bool Semaphore::giveFromISR()
 {
-	vSemaphoreDelete(_hnd);
+	static int32_t woken;
+	woken = 0;
+	int32_t result = xSemaphoreGiveFromISR(_hnd, &woken);
+	if (woken!=0) {
+		Task::yieldFromISR();
+	}
+	return result;
 }
 
 bool Semaphore::give()
@@ -48,4 +55,10 @@ bool Semaphore::giveFromISR(int32_t *higherPriorityTaskWoken)
 {
 	return xSemaphoreGiveFromISR(_hnd, higherPriorityTaskWoken);
 }
+
+Semaphore::~Semaphore()
+{
+	vSemaphoreDelete(_hnd);
+}
+
 

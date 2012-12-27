@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <openstella/OS/Mutex.h>
+
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/inc/hw_uart.h>
 #include <StellarisWare/inc/hw_types.h>
@@ -37,39 +39,57 @@
 #include <StellarisWare/driverlib/gpio.h>
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 
-UARTController UART::UART0(0, SYSCTL_PERIPH_UART0, UART0_BASE);
-UARTController UART::UART1(1, SYSCTL_PERIPH_UART1, UART1_BASE);
-UARTController UART::UART2(2, SYSCTL_PERIPH_UART2, UART2_BASE);
+
+UARTController *UARTController::_instances[] = { 0, 0, 0 };
+
+UARTController *UARTController::get(controller_num_t num)
+{
+	if (!_instances[num]) {
+		static Mutex mutex;
+		MutexGuard guard(&mutex);
+		_instances[num] = new UARTController(num);
+	}
+	return _instances[num];
+}
 
 
 void UART0IntHandler(void) {
-	UART::UART0.handleInterrupt();
+	UARTController::_instances[UARTController::controller_0]->handleInterrupt();
 }
 
 void UART1IntHandler(void) {
-	UART::UART1.handleInterrupt();
+	UARTController::_instances[UARTController::controller_1]->handleInterrupt();
 }
 
 void UART2IntHandler(void) {
-	UART::UART2.handleInterrupt();
+	UARTController::_instances[UARTController::controller_2]->handleInterrupt();
 }
 
-
-UARTController::UARTController(uint8_t portNumber, uint32_t periph, uint32_t base) :
-	_portNumber(portNumber),
-	_periph(periph),
-	_base(base),
-	_queue(64)
+UARTController::UARTController(controller_num_t num) :
+	_num(num),
+	_queue(64),
+	_enabled(false),
+	_baudrate(115200),
+	_wordlength(wordlength_8bit),
+	_parity(parity_none),
+	_stopbits(stopbits_1)
 {
-	switch (portNumber) {
-		case 0:
+	switch (num) {
+		case controller_0:
+			_periph = SYSCTL_PERIPH_UART0;
+			_base = UART0_BASE;
 			_queue.addToRegistry("UART0");
 			break;
-		case 1:
+		case controller_1:
+			_periph = SYSCTL_PERIPH_UART1;
+			_base = UART1_BASE;
 			_queue.addToRegistry("UART1");
 			break;
-		case 2:
+		case controller_2:
+			_periph = SYSCTL_PERIPH_UART2;
+			_base = UART2_BASE;
 			_queue.addToRegistry("UART2");
 			break;
 	}
@@ -78,13 +98,13 @@ UARTController::UARTController(uint8_t portNumber, uint32_t periph, uint32_t bas
 void UARTController::handleInterrupt()
 {
     unsigned long ulStatus;
-    ulStatus = ROM_UARTIntStatus(_base, true);
+    ulStatus = MAP_UARTIntStatus(_base, true);
 
-    ROM_UARTIntClear(_base, ulStatus);
+    MAP_UARTIntClear(_base, ulStatus);
 
-    while(ROM_UARTCharsAvail(_base))
+    while(MAP_UARTCharsAvail(_base))
     {
-    	uint8_t b = ROM_UARTCharGetNonBlocking(_base);
+    	uint8_t b = MAP_UARTCharGetNonBlocking(_base);
     	if (!_queue.sendToBackFromISR(b)) {
     		static int queue_full_err = 0;
     		queue_full_err++;
@@ -95,18 +115,51 @@ void UARTController::handleInterrupt()
 
 void UARTController::enable()
 {
-	ROM_UARTEnable(_base);
+	_enabled = true;
+	MAP_UARTEnable(_base);
 }
 
 void UARTController::disable()
 {
-	ROM_UARTDisable(_base);
+	MAP_UARTDisable(_base);
+	_enabled = false;
 }
 
-
-void UARTController::setup(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits, GPIOPin rxpin, GPIOPin txpin)
+void UARTController::enablePeripheral()
 {
-	ROM_SysCtlPeripheralEnable(_periph);
+	MAP_SysCtlPeripheralEnable(_periph);
+}
+
+void UARTController::setup(GPIOPin rxpin, GPIOPin txpin, uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits)
+{
+	enablePeripheral();
+
+	if (!rxpin.isValid()) {
+		switch (_num) {
+			case controller_0:
+				rxpin = GPIO::A[0];
+				break;
+			case controller_1:
+				rxpin = GPIO::D[0];
+				break;
+			case controller_2:
+				rxpin = GPIO::G[0];
+				break;
+		}
+	}
+	if (!txpin.isValid()) {
+		switch (_num) {
+			case controller_0:
+				txpin = GPIO::A[1];
+				break;
+			case controller_1:
+				txpin = GPIO::D[1];
+				break;
+			case controller_2:
+				txpin = GPIO::G[1];
+				break;
+		}
+	}
 
 	rxpin.getPort()->enablePeripheral();
 	rxpin.configure(GPIOPin::UART);
@@ -114,80 +167,64 @@ void UARTController::setup(uint32_t baudrate, wordlength_t wordLength, parity_t 
 	txpin.getPort()->enablePeripheral();
 	txpin.configure(GPIOPin::UART);
 
-	switch (_portNumber) {
-		case 0:
+	switch (_num) {
+		case controller_0:
 			rxpin.mapAsU0RX();
 			txpin.mapAsU0TX();
+			UARTIntRegister(UART0_BASE, UART0IntHandler);
+			MAP_IntPrioritySet(INT_UART0, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			MAP_IntEnable(INT_UART0);
 			break;
-		case 1:
+		case controller_1:
 			rxpin.mapAsU1RX();
 			txpin.mapAsU1TX();
+			UARTIntRegister(UART1_BASE, UART1IntHandler);
+			MAP_IntPrioritySet(INT_UART1, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			MAP_IntEnable(INT_UART1);
 			break;
-		case 2:
+		case controller_2:
 			rxpin.mapAsU2RX();
 			txpin.mapAsU2TX();
-			break;
-	}
-
-	switch (_portNumber) {
-		case 0:
-			UARTIntRegister(UART0_BASE, UART0IntHandler);
-			ROM_IntPrioritySet(INT_UART0, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntEnable(INT_UART0);
-			break;
-		case 1:
-			UARTIntRegister(UART1_BASE, UART1IntHandler);
-			ROM_IntPrioritySet(INT_UART1, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntEnable(INT_UART1);
-			break;
-		case 2:
 			UARTIntRegister(UART2_BASE, UART2IntHandler);
-			ROM_IntPrioritySet(INT_UART2, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			ROM_IntEnable(INT_UART2);
+			MAP_IntPrioritySet(INT_UART2, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+			MAP_IntEnable(INT_UART2);
 			break;
 	}
 
-	ROM_UARTFIFOEnable(_base);
-	ROM_UARTIntEnable(_base, UART_INT_RX | UART_INT_RT);
+	MAP_UARTFIFOEnable(_base);
+	//MAP_UARTIntEnable(_base, UART_INT_RX | UART_INT_RT);
 
-	disable();
-	ROM_UARTConfigSetExpClk(_base, ROM_SysCtlClockGet(), baudrate, ((uint8_t) wordLength | (uint8_t) parity | (uint8_t) stopbits));
-    enable();
-}
-
-void UARTController::setup(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits)
-{
-	setup(baudrate, wordLength, parity, stopbits, GPIO::A[0], GPIO::A[1]);
+	setLineParameters(baudrate, wordLength, parity, stopbits);
 }
 
 void UARTController::setParityMode(UARTController::parity_t parity)
 {
-	ROM_UARTParityModeSet(_base, parity);
+	MAP_UARTParityModeSet(_base, parity);
 }
 
 UARTController::parity_t UARTController::getParityMode(void)
 {
-	return (UARTController::parity_t) ROM_UARTParityModeGet(_base);
+	return (UARTController::parity_t) MAP_UARTParityModeGet(_base);
 }
 
 void UARTController::setBreakState(bool breakState)
 {
-	ROM_UARTBreakCtl(_base, breakState);
+	MAP_UARTBreakCtl(_base, breakState);
 }
 
 bool UARTController::isTransmitting()
 {
-	return (ROM_UARTBusy(_base) == false);
+	return (MAP_UARTBusy(_base) == false);
 }
 
 void UARTController::putChar(uint8_t c)
 {
-	ROM_UARTCharPut(_base, c);
+	MAP_UARTCharPut(_base, c);
 }
 
 uint8_t UARTController::getChar(void)
 {
-	//return UARTCharGet(_base);
+	return UARTCharGet(_base);
 	uint8_t result = 0;
 	while (!_queue.receive(&result)) {
 		static int receive_err = 0;
@@ -198,80 +235,80 @@ uint8_t UARTController::getChar(void)
 
 void UARTController::enableFIFO()
 {
-	ROM_UARTFIFOEnable(_base);
+	MAP_UARTFIFOEnable(_base);
 }
 
 void UARTController::disableFIFO()
 {
-	ROM_UARTFIFODisable(_base);
+	MAP_UARTFIFODisable(_base);
 }
 
 void UARTController::setFIFOTxLevel(fifo_tx_level_t level)
 {
-	ROM_UARTFIFOLevelSet(_base, level, getFIFORxLevel());
+	MAP_UARTFIFOLevelSet(_base, level, getFIFORxLevel());
 }
 
 void UARTController::setFIFORxLevel(fifo_rx_level_t level)
 {
-	ROM_UARTFIFOLevelSet(_base, getFIFOTxLevel(), level);
+	MAP_UARTFIFOLevelSet(_base, getFIFOTxLevel(), level);
 }
 
 UARTController::fifo_tx_level_t UARTController::getFIFOTxLevel()
 {
 	uint32_t rxLevel, txLevel;
-	ROM_UARTFIFOLevelGet(_base, &txLevel, &rxLevel);
+	MAP_UARTFIFOLevelGet(_base, &txLevel, &rxLevel);
 	return (fifo_tx_level_t) txLevel;
 }
 
 UARTController::fifo_rx_level_t UARTController::getFIFORxLevel()
 {
 	uint32_t rxLevel, txLevel;
-	ROM_UARTFIFOLevelGet(_base, &txLevel, &rxLevel);
+	MAP_UARTFIFOLevelGet(_base, &txLevel, &rxLevel);
 	return (fifo_rx_level_t) rxLevel;
 }
 
 bool UARTController::isFIFOCharAvail()
 {
-	return ROM_UARTCharsAvail(_base) != 0;
+	return MAP_UARTCharsAvail(_base) != 0;
 }
 
 bool UARTController::isFIFOSpaceAvail()
 {
-	return ROM_UARTSpaceAvail(_base) != 0;
+	return MAP_UARTSpaceAvail(_base) != 0;
 }
 
 void UARTController::putCharNonblocking(uint8_t c)
 {
-	ROM_UARTCharPutNonBlocking(_base, c);
+	MAP_UARTCharPutNonBlocking(_base, c);
 }
 
 int16_t UARTController::getCharNonBlocking()
 {
-	return ROM_UARTCharGetNonBlocking(_base);
+	return MAP_UARTCharGetNonBlocking(_base);
 }
 
 void UARTController::enableSIR(bool lowPower)
 {
 	disable();
-	ROM_UARTEnableSIR(_base, lowPower);
+	MAP_UARTEnableSIR(_base, lowPower);
 	enable();
 }
 
 void UARTController::disableSIR()
 {
 	disable();
-	ROM_UARTDisableSIR(_base);
+	MAP_UARTDisableSIR(_base);
 	enable(); // TODO: check whether UART was enabled in the first place
 }
 
 uint32_t UARTController::getRxError()
 {
-	return ROM_UARTRxErrorGet(_base);
+	return MAP_UARTRxErrorGet(_base);
 }
 
 void UARTController::clearRxError()
 {
-	ROM_UARTRxErrorClear(_base);
+	MAP_UARTRxErrorClear(_base);
 }
 
 void UARTController::enableSmartCard()
@@ -285,9 +322,9 @@ void UARTController::disableSmartCard()
 }
 
 
-void UARTController::write(const char *s, int len) {
+void UARTController::write(const void * const ptr, int len) {
 
-	//char *s = (char *) ptr;
+	uint8_t *s = (uint8_t *) ptr;
 	int i = 0;
 
 	while (len--) {
@@ -296,8 +333,9 @@ void UARTController::write(const char *s, int len) {
 	}
 }
 
-void UARTController::write(char s[0])
+void UARTController::write( const void * const string)
 {
+	uint8_t *s = (uint8_t *) string;
 	while (s[0]!=0) {
 		putChar(s[0]);
 		s++;
@@ -311,7 +349,7 @@ RecursiveMutex *UARTController::getMutex()
 
 void UARTController::setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin)
 {
-	setup(baudrate, wordlength_8bit, parity_none, stopbits_1, rxpin, txpin);
+	setup(rxpin, txpin, baudrate, wordlength_8bit, parity_none, stopbits_1);
 	enableFIFO();
 	HWREG(_base + UART_O_LCTL) |= UART_LCTL_MASTER | UART_LCTL_BLEN_16T;
 	HWREG(_base + UART_O_CTL)  |= UART_CTL_LIN;
@@ -319,20 +357,149 @@ void UARTController::setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin tx
 
 void UARTController::setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin)
 {
-	setup(baudrate, wordlength_8bit, parity_none, stopbits_1, rxpin, txpin);
+	setup(rxpin, txpin, baudrate, wordlength_8bit, parity_none, stopbits_1);
 	enableFIFO();
 	HWREG(_base + UART_O_LCTL) |= UART_LCTL_BLEN_16T;
 	HWREG(_base + UART_O_CTL)  |= UART_CTL_LIN;
+}
+
+void UARTController::setLineParameters(uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits)
+{
+	bool _wasEnabled = _enabled;
+	if (_enabled) {	disable(); }
+	_baudrate = baudrate;
+	_wordlength = wordLength;
+	_parity = parity;
+	_stopbits = stopbits;
+	MAP_UARTConfigSetExpClk(_base, MAP_SysCtlClockGet(), baudrate, ((uint8_t) wordLength | (uint8_t) parity | (uint8_t) stopbits));
+    if (_wasEnabled) { enable(); }
+}
+
+uint32_t UARTController::getBaudrate()
+{
+	return _baudrate;
+}
+
+UARTController::wordlength_t UARTController::getWordLength()
+{
+	return _wordlength;
+}
+
+UARTController::parity_t UARTController::getParity()
+{
+	return _parity;
+}
+
+UARTController::stopbits_t UARTController::getStopBits()
+{
+	return _stopbits;
 }
 
 void UARTController::printf( const char* format, ... ) {
     va_list args;
     va_start( args, format );
     int size = vsniprintf(0, 0, format, args);
-    char *buf = (char*) malloc(size+1);
+    char *buf = (char*) pvPortMalloc(size+1);
     vsiprintf(buf, format, args);
     va_end( args );
     write(buf);
-    free(buf);
+    vPortFree(buf);
 }
+
+/// read a number of bytes from the UART controller
+/**
+ * @param buf The buffer the data shall be read into
+ * @param bufSize size of the buffer in bytes
+ * @return the requested CANController object. newly constructed, if not requested before.
+ */
+void UARTController::read(void *buf, int bufSize)
+{
+	uint8_t *data = (uint8_t *) buf;
+
+	while (bufSize--) {
+		*(data++) = getChar();
+	}
+}
+
+
+/// read from the UART controller until a terminating character appears in the byte stream
+/**
+ * at maximum, bufSize number of bytes are read if the terminator sequence doesn't appear prior to that
+ * @param buf The buffer the data shall be read into
+ * @param bufSize Size of the buffer in bytes
+ * @param terminator Stop reading and return when this character is found.
+ * @return The number of bytes read from the UART.
+ */
+int UARTController::readUntil(const void *buf, int bufSize, uint8_t terminator)
+{
+	uint8_t *data = (uint8_t *) buf;
+	int numRead;
+	bool terminated = false;
+
+	for ( numRead = 1; bufSize > 0; bufSize--) {
+		data[numRead-1] = getChar();
+		if (data[numRead-1] == terminator) terminated = true;
+		numRead++;
+		if (terminated) {
+			break;
+		}
+	}
+
+	return (numRead - 1);
+}
+
+
+/// read from the UART controller until a terminating sequence of bytes appears in the stream
+/**
+ * at maximum, bufSize number of bytes are read if the terminator sequence doesn't appear prior to that
+ * @param buf The buffer the data shall be read into
+ * @param bufSize Size of the buffer in bytes
+ * @param terminator Stop reading and return when this byte sequence is found.
+ * @param terminatorLength Size of the terminator sequence in bytes
+ * @return The number of bytes read from the UART.
+ */
+int UARTController::readUntil(const void *buf, int bufSize, const void * const terminator, int terminatorLength)
+{
+	uint8_t *data = (uint8_t *) buf;
+	uint8_t *t = (uint8_t *) terminator;
+	bool terminated;
+	int numRead;
+
+	for ( numRead = 1; bufSize > 0; bufSize--) {
+		data[numRead-1] = getChar();
+
+		if (numRead >= terminatorLength) {
+			terminated = true;
+			for (int i = terminatorLength; i > 0; i--) {
+				if (t[i-1] != data[numRead - terminatorLength + i - 1]) {
+					terminated = false;
+					break;
+				}
+			}
+		}
+		numRead++;
+		if (terminated) {
+			break;
+		}
+	}
+
+	return numRead - 1;
+}
+
+int UARTController::readLine(const void *buf, int bufSize)
+{
+	int i;
+	uint8_t *data = (uint8_t *) buf;
+	for (i=0; i<bufSize-1; i++) {
+		data[i] = getChar();
+		if ( (data[i]==10) || (data[i]==13)) break;
+	}
+	data[i] = 0x00;
+	return i;
+}
+
+
+
+
+
 

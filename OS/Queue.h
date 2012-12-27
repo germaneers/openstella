@@ -38,6 +38,7 @@ template <class T> class Queue
 {
 	private:
 		xQueueHandle _hnd;
+		uint16_t _length;
 
 	public:
 
@@ -46,7 +47,7 @@ template <class T> class Queue
 		 *        memory will be allocated for queueLength*sizeof(T)
 		 *        at construction.
 		 */
-		Queue(uint16_t queueLength=10) {
+		Queue(uint16_t queueLength=10) : _length(queueLength) {
 			_hnd = xQueueCreate(queueLength, sizeof(T));
 		}
 
@@ -59,6 +60,10 @@ template <class T> class Queue
 		uint16_t messagesWaiting()
 		{
 			return uxQueueMessagesWaiting(_hnd);
+		}
+
+		bool isFull() {
+			return (messagesWaiting()>=_length);
 		}
 
 		/// put an element to the front of the queue

@@ -31,6 +31,7 @@
 #include <StellarisWare/driverlib/timer.h>
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <freertos/include/FreeRTOSConfig.h>
 
 Timer Timer::_timers[] = {
@@ -134,17 +135,17 @@ uint32_t Timer::getPeriph()
 
 void Timer::enablePeripheral()
 {
-	ROM_SysCtlPeripheralEnable(getPeriph());
+	MAP_SysCtlPeripheralEnable(getPeriph());
 }
 
 void Timer::disablePeripheral()
 {
-	ROM_SysCtlPeripheralDisable(getPeriph());
+	MAP_SysCtlPeripheralDisable(getPeriph());
 }
 
 void Timer::setType(type_t type)
 {
-	ROM_TimerConfigure(getBase(), (uint32_t) type);
+	MAP_TimerConfigure(getBase(), (uint32_t) type);
 	_last_config = (uint32_t) type;
 }
 
@@ -158,18 +159,18 @@ void Timer::setChannelType(channel_t channel, type_t type)
 		config &= ~0xFF00; // clear channel B config
 		config |= type<<8;
 	}
-	ROM_TimerConfigure(getBase(), config);
+	MAP_TimerConfigure(getBase(), config);
 	_last_config = config;
 }
 
 void Timer::setInvertation(invertation_t invertation)
 {
-	ROM_TimerControlLevel(getBase(), TIMER_BOTH, (uint8_t) invertation);
+	MAP_TimerControlLevel(getBase(), TIMER_BOTH, (uint8_t) invertation);
 }
 
 void Timer::setTriggerOutput(bool enableTrigger)
 {
-	ROM_TimerControlTrigger(getBase(), TIMER_BOTH, enableTrigger ? 1 : 0);
+	MAP_TimerControlTrigger(getBase(), TIMER_BOTH, enableTrigger ? 1 : 0);
 }
 
 void Timer::setEventType(edge_t edge)
@@ -179,52 +180,52 @@ void Timer::setEventType(edge_t edge)
 
 void Timer::setDebugMode(debug_mode_t mode)
 {
-	ROM_TimerControlStall(getBase(), TIMER_BOTH, (uint8_t)mode);
+	MAP_TimerControlStall(getBase(), TIMER_BOTH, (uint8_t)mode);
 }
 
 void Timer::enable()
 {
-	ROM_TimerEnable(getBase(), TIMER_BOTH);
+	MAP_TimerEnable(getBase(), TIMER_BOTH);
 }
 
 void Timer::disable()
 {
-	ROM_TimerDisable(getBase(), TIMER_BOTH);
+	MAP_TimerDisable(getBase(), TIMER_BOTH);
 }
 
 void Timer::enableRTC()
 {
-	ROM_TimerRTCEnable(getBase());
+	MAP_TimerRTCEnable(getBase());
 }
 
 void Timer::disableRTC()
 {
-	ROM_TimerRTCDisable(getBase());
+	MAP_TimerRTCDisable(getBase());
 }
 
 void Timer::setLoadValue(uint32_t load)
 {
-	ROM_TimerLoadSet(getBase(), TIMER_A, load);
+	MAP_TimerLoadSet(getBase(), TIMER_A, load);
 }
 
 uint32_t Timer::getLoadValue()
 {
-	return ROM_TimerLoadGet(getBase(), TIMER_A);
+	return MAP_TimerLoadGet(getBase(), TIMER_A);
 }
 
 uint32_t Timer::getValue()
 {
-	return ROM_TimerValueGet(getBase(), TIMER_A);
+	return MAP_TimerValueGet(getBase(), TIMER_A);
 }
 
 void Timer::setMatchValue(uint32_t match)
 {
-	ROM_TimerMatchSet(getBase(), TIMER_A, match);
+	MAP_TimerMatchSet(getBase(), TIMER_A, match);
 }
 
 uint32_t Timer::getMatchValue()
 {
-	return ROM_TimerMatchGet(getBase(), TIMER_A);
+	return MAP_TimerMatchGet(getBase(), TIMER_A);
 }
 
 void Timer::handleInterrupt(void)
@@ -280,12 +281,12 @@ Timer::type_t TimerChannel::getType()
 
 void TimerChannel::setInvertation(Timer::invertation_t invertation)
 {
-	ROM_TimerControlLevel(getBase(), getChannel(), (uint8_t) invertation);
+	MAP_TimerControlLevel(getBase(), getChannel(), (uint8_t) invertation);
 }
 
 void TimerChannel::setTriggerOutput(bool enableTrigger)
 {
-	ROM_TimerControlTrigger(getBase(), getChannel(), enableTrigger ? 1 : 0);
+	MAP_TimerControlTrigger(getBase(), getChannel(), enableTrigger ? 1 : 0);
 }
 
 void TimerChannel::setEventType(Timer::edge_t edge)
@@ -295,37 +296,42 @@ void TimerChannel::setEventType(Timer::edge_t edge)
 
 void TimerChannel::setDebugMode(Timer::debug_mode_t mode)
 {
-	ROM_TimerControlStall(getBase(), getChannel(), (uint8_t)mode);
+	MAP_TimerControlStall(getBase(), getChannel(), (uint8_t)mode);
 }
 
 void TimerChannel::setLoadValue(uint16_t load)
 {
-	ROM_TimerLoadSet(getBase(), getChannel(), load);
+	MAP_TimerLoadSet(getBase(), getChannel(), load);
 }
 
 uint16_t TimerChannel::getLoadValue()
 {
-	return ROM_TimerLoadGet(getBase(), getChannel());
+	return MAP_TimerLoadGet(getBase(), getChannel());
 }
 
 uint16_t TimerChannel::getValue()
 {
-	return ROM_TimerValueGet(getBase(), getChannel());
+	return MAP_TimerValueGet(getBase(), getChannel());
 }
 
 void TimerChannel::setMatchValue(uint16_t match)
 {
-	ROM_TimerMatchSet(getBase(), getChannel(), match);
+	MAP_TimerMatchSet(getBase(), getChannel(), match);
 }
 
 uint16_t TimerChannel::getMatchValue()
 {
-	return ROM_TimerMatchGet(getBase(), getChannel());
+	return MAP_TimerMatchGet(getBase(), getChannel());
 }
 
 void TimerChannel::enableTimer()
 {
 	Timer::getTimer(_timer_num)->enable();
+}
+
+void TimerChannel::disableTimer()
+{
+	Timer::getTimer(_timer_num)->disable();
 }
 
 void TimerChannel::configurePWM(GPIOPin pin, uint16_t maxValue, uint16_t initialValue)
@@ -359,6 +365,36 @@ void TimerChannel::configurePWM(GPIOPin pin, uint16_t maxValue, uint16_t initial
 Timer *TimerChannel::getTimer()
 {
 	return Timer::getTimer(_timer_num);
+}
+
+void TimerChannel::configureCounter(GPIOPin pin, Timer::edge_t edgeType, uint16_t loadValue, uint16_t matchValue)
+{
+	Timer::getTimer(_timer_num)->enablePeripheral();
+	pin.enablePeripheral();
+	pin.configure(GPIOPin::Timer);
+
+	switch (_timer_num)  {
+		case Timer::timer_0:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP0(); } else { pin.mapAsCCP1(); }
+			break;
+		case Timer::timer_1:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP2(); } else { pin.mapAsCCP3(); }
+			break;
+		case Timer::timer_2:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP4(); } else { pin.mapAsCCP5(); }
+			break;
+		case Timer::timer_3:
+			if (_channel == Timer::channel_A) { pin.mapAsCCP6(); } else { pin.mapAsCCP7(); }
+			break;
+		default:
+			while(1);
+	}
+
+	setType(Timer::event_counter);
+	setEventType(edgeType);
+	setLoadValue(loadValue);
+	setMatchValue(matchValue);
+
 }
 
 uint8_t TimerChannel::getChannelNumber()
@@ -407,16 +443,16 @@ void Timer::registerInterruptHandler(void(*pfnHandler)(void), half_t channel)
 
 void Timer::enableInterrupt(uint32_t flags)
 {
-	ROM_IntPrioritySet(getInterruptNumber(channel_A), configMAX_SYSCALL_INTERRUPT_PRIORITY);
-	ROM_IntPrioritySet(getInterruptNumber(channel_B), configMAX_SYSCALL_INTERRUPT_PRIORITY);
-	ROM_TimerIntEnable(getBase(), flags);
+	MAP_IntPrioritySet(getInterruptNumber(channel_A), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(getInterruptNumber(channel_B), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_TimerIntEnable(getBase(), flags);
 	IntEnable(getInterruptNumber(channel_A));
 	//IntEnable(getInterruptNumber(channel_B));
 }
 
 uint32_t Timer::getInterruptStatus(bool returnMaskedStatus)
 {
-	return ROM_TimerIntStatus(getBase(), returnMaskedStatus);
+	return MAP_TimerIntStatus(getBase(), returnMaskedStatus);
 }
 
 void Timer::clearInterrupt(uint32_t flags)

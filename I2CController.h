@@ -27,7 +27,8 @@
 
 #include <stdint.h>
 #include "GPIO.h"
-#include "OS/Mutex.h"
+#include "OS/RecursiveMutex.h"
+#include "OS/Semaphore.h"
 
 class I2CController {
 	friend void I2C0IntHandler();
@@ -58,22 +59,25 @@ private:
 	GPIOPin _sda;
 	GPIOPin _scl;
 
-	Mutex _lock;
+	RecursiveMutex _lock;
+	Semaphore _interruptSemaphore;
+
+	bool _interruptsEnabled;
 
 	static I2CController *_controllers[controller_count];
 	I2CController(controller_t controller, uint32_t periph, uint32_t base);
 
 	void handleInterrupt();
-	inline unsigned long waitFinish();
-	unsigned long nolock_read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long nolock_read8(uint8_t addr, uint8_t *data, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long nolock_write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long nolock_write8(uint8_t addr, uint8_t data, bool sendStartCondition=true, bool sendStopCondition=true);
+	inline unsigned long waitFinish(uint32_t timeout_ms=0xFFFFFFFF);
 
 
 public:
+	RecursiveMutex *getLock() { return &_lock; }
+
 	static I2CController* get(controller_t controller);
-	void setup(GPIOPin sda, GPIOPin scl, speed_t speed);
+
+	void setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts = true);
+	void enableInterrupts(bool enableTimeoutInterrupt=true, bool enableDataInterrupt=true);
 
 	unsigned long read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
 	unsigned long read8(uint8_t addr, uint8_t *data, bool sendStartCondition=true, bool sendStopCondition=true);

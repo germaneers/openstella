@@ -32,9 +32,9 @@
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/can.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 
 #include "../OS/Mutex.h"
-#include "CANMessageNotifyObject.h"
 
 void CAN0IntHandler(void) {
 	CANController::_controllers[0]->handleInterrupt();
@@ -57,7 +57,6 @@ CANController::CANController(CAN::channel_t channel, uint32_t periph, uint32_t b
 	_channel(channel),
 	_periph(periph),
 	_base(base),
-	_returnedNotifyObjects(10),
 	_isrToThreadQueue(32),
 	_observerMutex(),
 	_lastMessageReceivedTimestamp(0),
@@ -68,7 +67,7 @@ CANController::CANController(CAN::channel_t channel, uint32_t periph, uint32_t b
 
 	for (uint8_t i=0; i<32; i++)
 	{
-		//_mobs[i] = CANMessageObject(_channel, i+1);
+		_mobs[i].setReceivingController(this);
 		_mobs[i].setChannel(channel);
 		_mobs[i].setMobNum(i+1);
 	}
@@ -85,7 +84,12 @@ CANController::observer_list_t *CANController::createObserverListFragment()
 
 void CANController::disableInterrupts(uint32_t interruptFlags)
 {
-	ROM_CANIntDisable(_base, interruptFlags);
+	MAP_CANIntDisable(_base, interruptFlags);
+}
+
+void CANController::setBitrate(CAN::bitrate_t bitrate)
+{
+	MAP_CANBitRateSet(_base, MAP_SysCtlClockGet(), bitrate);
 }
 
 void CANController::setup(CAN::bitrate_t bitrate, GPIOPin rxpin, GPIOPin txpin)
@@ -117,14 +121,13 @@ void CANController::setup(CAN::bitrate_t bitrate, GPIOPin rxpin, GPIOPin txpin)
 #endif
 	}
 
-	ROM_SysCtlPeripheralEnable(_periph);
+	MAP_SysCtlPeripheralEnable(_periph);
 
-	ROM_CANInit(_base);
-	ROM_CANBitRateSet(_base, ROM_SysCtlClockGet(), bitrate);
+	MAP_CANInit(_base);
+	setBitrate(bitrate);
 
 	enableInterrupts(CAN_INT_MASTER | CAN_INT_ERROR | CAN_INT_STATUS);
 
-	/* FIXME doesn't work correctly when compiled with -Os ??? */
 	for (int i=0; i<32; i++)
 	{
 		CANMessageObject *o = getMessageObject(i);
@@ -157,16 +160,6 @@ void CANController::execute()
 			}
 		}
 
-
-		/* garbage collector */
-		CANMessageNotifyObject *obj;
-		while (_returnedNotifyObjects.receive(&obj, 0)) {
-			obj->_referenceCounter--;
-			if (obj->_referenceCounter==0) {
-				delete(obj);
-			}
-		}
-
 		uint32_t timeToWait = sendCyclicCANMessages();
 		if (timeToWait>100) timeToWait = 100;
 
@@ -176,20 +169,13 @@ void CANController::execute()
 }
 
 
-void ignore(void *data)
-{
-	return;
-}
-
-
 void CANController::handleInterrupt()
 {
-	while (uint32_t cause = ROM_CANIntStatus(_base, CAN_INT_STS_CAUSE))
+	while (uint32_t cause = MAP_CANIntStatus(_base, CAN_INT_STS_CAUSE))
 	{
 		if (cause == CAN_INT_INTID_STATUS) // status interrupt. error occurred?
 		{
 			uint32_t status = getControlRegister(); // also clears the interrupt
-			ignore(&status);
 			// TODO: error handling
 
 		} else if ( (cause >= 1) && (cause <= 32) ) // mailbox event
@@ -227,63 +213,63 @@ void CANController::enableInterrupts(uint32_t interruptFlags)
 		default:
 			while(1);
 	}
-	ROM_CANIntEnable(_base, interruptFlags);
-	ROM_IntPrioritySet(INT, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_CANIntEnable(_base, interruptFlags);
+	MAP_IntPrioritySet(INT, configMAX_SYSCALL_INTERRUPT_PRIORITY);
 	IntEnable(INT);
 }
 
 uint32_t CANController::getControlRegister()
 {
-	return ROM_CANStatusGet(_base, CAN_STS_CONTROL);
+	return MAP_CANStatusGet(_base, CAN_STS_CONTROL);
 }
 
 uint32_t CANController::getTxRequestRegister()
 {
-	return ROM_CANStatusGet(_base, CAN_STS_TXREQUEST);
+	return MAP_CANStatusGet(_base, CAN_STS_TXREQUEST);
 }
 
 uint32_t CANController::getNewDataRegister()
 {
-	return ROM_CANStatusGet(_base, CAN_STS_NEWDAT);
+	return MAP_CANStatusGet(_base, CAN_STS_NEWDAT);
 }
 
 uint32_t CANController::getMobEnabledRegister()
 {
-	return ROM_CANStatusGet(_base, CAN_STS_MSGVAL);
+	return MAP_CANStatusGet(_base, CAN_STS_MSGVAL);
 }
 
 void CANController::enable()
 {
-	ROM_CANEnable(_base);
+	MAP_CANEnable(_base);
 	run();
 }
 
 void CANController::disable()
 {
 	stop();
-	ROM_CANDisable(_base);
+	MAP_CANDisable(_base);
 }
 
 bool CANController::isAutomaticRetransmission()
 {
-	return ROM_CANRetryGet(_base);
+	return MAP_CANRetryGet(_base);
 }
 
 void CANController::setAutomaticRetransmission(bool retransmit)
 {
-	ROM_CANRetrySet(_base, retransmit);
+	MAP_CANRetrySet(_base, retransmit);
 }
 
 CAN::error_counters_t CANController::getErrorCounters()
 {
 	CAN::error_counters_t result;
-	result.passiveLimitReached = ROM_CANErrCntrGet(_base, &result.rx_errors, &result.tx_errors);
+	result.passiveLimitReached = MAP_CANErrCntrGet(_base, &result.rx_errors, &result.tx_errors);
 	return result;
 }
 
 uint8_t CANController::findFreeSendingMOB()
 {
-	while (1) {
+	for (uint8_t i=0; i<100; i++) {
 		uint32_t txPendingStatus = getTxRequestRegister();
 		for (uint8_t i=31; i>15; i--) {
 			if ( (txPendingStatus & (1<<i)) == 0 ) { // mailbox i is free?
@@ -295,18 +281,27 @@ uint8_t CANController::findFreeSendingMOB()
 	return 0;
 }
 
-void CANController::sendMessage(CANMessage *msg)
+bool CANController::sendMessage(CANMessage *msg)
 {
-	if (_silent) return;
+	static Mutex lock;
+	MutexGuard guard(&lock);
+
+	if (_silent) return true;
 	uint8_t mob = findFreeSendingMOB();
-	CANMessageObject *o = getMessageObject(mob);
-	if (msg->id>=0x800) {
-		msg->setExtendedId(true);
+	if (mob>0) {
+		CANMessageObject *o = getMessageObject(mob);
+		if (msg->id>=0x800) {
+			msg->setExtendedId(true);
+		}
+		o->assign(msg);
+		o->mask = 0;
+		o->set(CAN::message_type_tx);
+		//wait for MB?
+
+		return true;
+	} else {
+		return false;
 	}
-	o->assign(msg);
-	o->mask = 0;
-	o->set(CAN::message_type_tx);
-	//wait for MB?
 
 }
 
@@ -322,21 +317,33 @@ CANController *CANController::get(CAN::channel_t channel)
 		uint32_t periph;
 		void (*handler)(void);
 		switch (channel) {
+
+#ifdef HAS_CAN_CHANNEL_0
 			case CAN::channel_0:
 				base = CAN0_BASE;
 				periph = SYSCTL_PERIPH_CAN0;
 				handler = CAN0IntHandler;
 				break;
+#endif
+
+#ifdef HAS_CAN_CHANNEL_1
 			case CAN::channel_1:
 				base = CAN1_BASE;
 				periph = SYSCTL_PERIPH_CAN1;
 				handler = CAN1IntHandler;
 				break;
+#endif
+
+#ifdef HAS_CAN_CHANNEL_2
 			case CAN::channel_2:
 				base = CAN2_BASE;
 				periph = SYSCTL_PERIPH_CAN2;
 				handler = CAN2IntHandler;
 				break;
+#endif
+
+			default:
+				while(1);
 		}
 		_controllers[channel] = new CANController(channel, periph, base);
 		CANIntRegister(base, handler);
@@ -349,8 +356,6 @@ void CANController::notifyObservers(CANMessageObject *obj)
 {
 	MutexGuard guard(&_observerMutex);
 
-	CANMessageNotifyObject *notifyObj = 0;
-
 	observer_list_t *list = _observers;
 	while (list != 0) {
 		for (int i=0; i<observer_list_length; i++) {
@@ -360,30 +365,25 @@ void CANController::notifyObservers(CANMessageObject *obj)
 			if ( (obj->id & entry->mask) == (entry->can_id & entry->mask) )
 			{
 				// match. notify the observer.
-
-				if (!notifyObj) {
-					notifyObj = new CANMessageNotifyObject(obj->_channel, obj, 0);
+				CANMessage *msg = _pool.getMessage();
+				if (msg) {
+					msg->assign(obj);
+					if (!entry->observer->notifyCANMessage(msg)) {
+						_pool.returnMessage(msg);
+					}
 				}
 
-				if (entry->observer->notifyCANMessage(notifyObj)) {
-					// message queued
-					notifyObj->_referenceCounter++;
-				}
 			}
 		}
 		list = list->next;
 	}
 
-	if (notifyObj && (notifyObj->_referenceCounter==0)) {
-		delete(notifyObj);
-	}
-
 }
 
 
-void CANController::returnMessageNotifyObject(CANMessageNotifyObject *obj)
+void CANController::returnMessageToPool(CANMessage *obj)
 {
-	_returnedNotifyObjects.sendToBack(obj);
+	_pool.returnMessage(obj);
 }
 
 bool CANController::registerObserver(CANObserver *observer)
@@ -395,7 +395,21 @@ bool CANController::registerObserver(CANObserver *observer, int32_t can_id, uint
 {
 	MutexGuard guard(&_observerMutex);
 
+	// don't register if same observer on same object is already installed
 	observer_list_t *list = _observers;
+	while (list != 0) {
+		for (int i=0; i<observer_list_length; i++) {
+			if ( (list->entries[i].observer == observer)
+			  && (list->entries[i].can_id == can_id)
+			  && (list->entries[i].mask == mask)
+			) {
+				return true; // already registered
+			}
+		}
+		list = list->next;
+	}
+
+	list = _observers;
 	while (list != 0) {
 		for (int i=0; i<observer_list_length; i++) {
 			if (list->entries[i].observer==0) { // found an empty slot
@@ -501,56 +515,56 @@ uint32_t CANController::sendCyclicCANMessages()
 	return minTimeToWait;
 }
 
-void CANController::sendMessage(uint32_t id)
+bool CANController::sendMessage(uint32_t id)
 {
 	CANMessage msg(id,0);
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1)
+bool CANController::sendMessage(uint32_t id, uint8_t b1)
 {
 	CANMessage msg(id, 1);
 	msg.data[0] = b1;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2)
 {
 	CANMessage msg(id,2);
 	msg.data[0] = b1;
 	msg.data[1] = b2;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3)
 {
 	CANMessage msg(id,3);
 	msg.data[0] = b1;
 	msg.data[1] = b2;
 	msg.data[2] = b3;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
 {
 	CANMessage msg(id,4);
 	msg.data[0] = b1;
 	msg.data[1] = b2;
 	msg.data[2] = b3;
 	msg.data[3] = b4;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5)
 {
 	CANMessage msg(id,5);
 	msg.data[0] = b1;
@@ -558,12 +572,12 @@ void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3,
 	msg.data[2] = b3;
 	msg.data[3] = b4;
 	msg.data[4] = b5;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6)
 {
 	CANMessage msg(id,6);
 	msg.data[0] = b1;
@@ -572,12 +586,12 @@ void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3,
 	msg.data[3] = b4;
 	msg.data[4] = b5;
 	msg.data[5] = b6;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
 {
 	CANMessage msg(id,7);
 	msg.data[0] = b1;
@@ -587,10 +601,10 @@ void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3,
 	msg.data[4] = b5;
 	msg.data[5] = b6;
 	msg.data[6] = b7;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
-void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7, uint8_t b8)
+bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7, uint8_t b8)
 {
 	CANMessage msg(id,8);
 	msg.data[0] = b1;
@@ -601,13 +615,25 @@ void CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3,
 	msg.data[5] = b6;
 	msg.data[6] = b7;
 	msg.data[7] = b8;
-	sendMessage(&msg);
+	return sendMessage(&msg);
 }
 
 
 uint32_t CANController::getTimeSinceLastReceivedMessage()
 {
 	return getTime() - _lastMessageReceivedTimestamp;
+}
+
+bool CANController::sendMessage(uint32_t id, uint8_t dlc, void const *ptr)
+{
+	uint8_t *data = (uint8_t *) ptr;
+
+	if (dlc > 8) dlc = 8;
+	CANMessage msg(id, dlc);
+	if (dlc > 0) {
+		memcpy(msg.data, data, dlc);
+	}
+	return sendMessage(&msg);
 }
 
 void CANController::setSilent(bool beSilent)

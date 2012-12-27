@@ -32,7 +32,8 @@ namespace CAN {
 	typedef enum {
 		channel_0,
 		channel_1,
-		channel_2
+		channel_2,
+		channel_none
 	} channel_t;
 
 	typedef enum {

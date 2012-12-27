@@ -27,6 +27,7 @@
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/rom.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/gpio.h>
 #include <StellarisWare/driverlib/interrupt.h>
@@ -41,16 +42,18 @@ GPIOPort GPIO::G(6, SYSCTL_PERIPH_GPIOG, GPIO_PORTG_BASE);
 GPIOPort GPIO::H(7, SYSCTL_PERIPH_GPIOH, GPIO_PORTH_BASE);
 GPIOPort GPIO::J(9, SYSCTL_PERIPH_GPIOJ, GPIO_PORTJ_BASE);
 
+GPIOPin GPIOPin::invalid(0x0F, 0x0F);
+
 GPIOPort::GPIOPort(uint8_t portNumber, uint32_t periph, uint32_t base) :
 		_portNumber(portNumber), _periph(periph), _base(base) {
 }
 
 void GPIOPort::enablePeripheral(void) {
-	ROM_SysCtlPeripheralEnable(_periph);
+	MAP_SysCtlPeripheralEnable(_periph);
 }
 
 void GPIOPort::disablePeripheral(void) {
-	ROM_SysCtlPeripheralDisable(_periph);
+	MAP_SysCtlPeripheralDisable(_periph);
 }
 
 void GPIOPort::configurePins(uint8_t pins, GPIOPin::mode_t cfg) {
@@ -70,7 +73,7 @@ void GPIOPort::configurePins(uint8_t pins, GPIOPin::mode_t cfg) {
 		default:
 			break;
 	}
-	ROM_GPIODirModeSet(_base, pins, mode);
+	MAP_GPIODirModeSet(_base, pins, mode);
 
 	uint32_t type = GPIO_PIN_TYPE_STD;
 	uint32_t strength = GPIO_STRENGTH_2MA;
@@ -118,50 +121,50 @@ void GPIOPort::configurePins(uint8_t pins, GPIOPin::mode_t cfg) {
 			break;
 	}
 
-	ROM_GPIOPadConfigSet(_base, pins, strength, type);
+	MAP_GPIOPadConfigSet(_base, pins, strength, type);
 
 }
 
 void GPIOPort::configurePads(uint8_t pins, GPIOPin::strength_t strength, GPIOPin::padType_t padType) {
-	ROM_GPIOPadConfigSet(_base, pins, strength, padType);
+	MAP_GPIOPadConfigSet(_base, pins, strength, padType);
 }
 
 GPIOPin::strength_t GPIOPort::getPadStrength(uint8_t pin) {
 	uint32_t pulStrength;
 	uint32_t pulPadType;
-	ROM_GPIOPadConfigGet(_base, pin, &pulStrength, &pulPadType);
+	MAP_GPIOPadConfigGet(_base, pin, &pulStrength, &pulPadType);
 	return (GPIOPin::strength_t) pulStrength;
 }
 
 GPIOPin::padType_t GPIOPort::getPadType(uint8_t pin) {
 	uint32_t pulStrength;
 	uint32_t pulPadType;
-	ROM_GPIOPadConfigGet(_base, pin, &pulStrength, &pulPadType);
+	MAP_GPIOPadConfigGet(_base, pin, &pulStrength, &pulPadType);
 	return (GPIOPin::padType_t) pulPadType;
 }
 
 void GPIOPort::setPinsDirection(uint8_t pins, GPIOPin::direction_t dir) {
-	ROM_GPIODirModeSet(_base, pins, dir);
+	MAP_GPIODirModeSet(_base, pins, dir);
 }
 
 GPIOPin::direction_t GPIOPort::getPinDirection(uint8_t pin) {
-	return (GPIOPin::direction_t) ROM_GPIODirModeGet(_base, pin);
+	return (GPIOPin::direction_t) MAP_GPIODirModeGet(_base, pin);
 }
 
 uint16_t GPIOPort::readPins(uint8_t pins) {
-	return ROM_GPIOPinRead(_base, pins);
+	return MAP_GPIOPinRead(_base, pins);
 }
 
 void GPIOPort::setPins(uint8_t pins) {
-	ROM_GPIOPinWrite(_base, pins, pins);
+	MAP_GPIOPinWrite(_base, pins, pins);
 }
 
 void GPIOPort::writePins(uint8_t pins, uint8_t values) {
-	ROM_GPIOPinWrite(_base, pins, values);
+	MAP_GPIOPinWrite(_base, pins, values);
 }
 
 void GPIOPort::clearPins(uint8_t pins) {
-	ROM_GPIOPinWrite(_base, pins, 0);
+	MAP_GPIOPinWrite(_base, pins, 0);
 }
 
 void GPIOPort::enableDMATriggerPins(uint8_t pins) {
@@ -192,7 +195,7 @@ void GPIOPort::unregisterInterruptHandler()
 }
 
 void GPIOPort::disableInterrupt(uint8_t pins) {
-	ROM_GPIOPinIntDisable(_base, pins);
+	MAP_GPIOPinIntDisable(_base, pins);
 }
 
 inline uint32_t GPIOPort::getInterruptNumber()
@@ -216,6 +219,9 @@ inline uint32_t GPIOPort::getInterruptNumber()
 
 GPIOPin::GPIOPin(uint8_t port, uint8_t pin) {
 	_port_pin = ((port & 0x0F) << 4) | (pin & 0x0F);
+}
+GPIOPin::GPIOPin() {
+	_port_pin = 0xFF;
 }
 
 GPIOPort *GPIOPin::getPort() {
@@ -278,12 +284,14 @@ GPIOPin::direction_t GPIOPin::getDirection() {
 }
 
 void GPIOPin::configureAsInput(padType_t padType) {
+	enablePeripheral();
 	configure(GPIOInput);
 	setDirection(input);
 	configurePad(padType, strength_2ma);
 }
 
 void GPIOPin::configureAsOutput(strength_t strength) {
+	enablePeripheral();
 	configure(GPIOOutput);
 	setDirection(output);
 	configurePad(push_pull, strength);
@@ -339,7 +347,7 @@ void GPIOPin::disableInterrupt() {
 
 void GPIOPort::setInterruptType(uint8_t pins, GPIOPin::interruptType_t intType)
 {
-    ROM_GPIOIntTypeSet(_base, pins, intType);
+    MAP_GPIOIntTypeSet(_base, pins, intType);
 }
 
 void GPIOPin::setInterruptType(interruptType_t intType)
@@ -354,7 +362,7 @@ void GPIOPort::enableInterrupt()
 
 void GPIOPort::enableInterruptPins(uint8_t pins)
 {
-	ROM_GPIOPinIntEnable(_base, pins);
+	MAP_GPIOPinIntEnable(_base, pins);
 }
 
 void GPIOPin::clearInterrupt()
@@ -364,5 +372,7 @@ void GPIOPin::clearInterrupt()
 
 void GPIOPort::clearInterruptPins(uint8_t pins)
 {
-	ROM_GPIOPinIntClear(_base, pins);
+	MAP_GPIOPinIntClear(_base, pins);
 }
+
+

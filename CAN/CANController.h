@@ -32,11 +32,11 @@
 #include "openstella/OS/Mutex.h"
 #include "CANtypes.h"
 #include "CANMessageObject.h"
-#include "CANMessageNotifyObject.h"
 #include "CANObserver.h"
 #include "CANCyclicMessage.h"
-#include "../FragmentedList.h"
+#include "../generics/FragmentedList.h"
 #include "../GPIO.h"
+#include "CANMessagePool.h"
 
 #ifdef PART_LM3S9B81
   #define HAS_CAN_CHANNEL_0
@@ -44,6 +44,10 @@
   #define HAS_CAN_CHANNEL_2
 #endif
 #ifdef PART_LM3S9B96
+  #define HAS_CAN_CHANNEL_0
+  #define HAS_CAN_CHANNEL_1
+#endif
+#ifdef PART_LM3S9D96
   #define HAS_CAN_CHANNEL_0
   #define HAS_CAN_CHANNEL_1
 #endif
@@ -102,13 +106,13 @@ class CANController : public Task
 
 		CANMessageObject _mobs[32];
 
-		Queue <CANMessageNotifyObject*> _returnedNotifyObjects;
 		observer_list_t *_observers;
 		Queue<uint8_t> _isrToThreadQueue;
 		Mutex _observerMutex;
 		uint32_t _lastMessageReceivedTimestamp;
 
 		bool _silent;
+		CANMessagePool _pool;
 
 		CANController(CAN::channel_t channel, uint32_t periph, uint32_t base);
 		void enableInterrupts(uint32_t interruptFlags);
@@ -155,6 +159,7 @@ class CANController : public Task
 		 * @param txpin the GPIOPin for CAN-TX. the pin's GPIO Hardware will be enabled, initialized and mapped.
 		 */
 		void setup(CAN::bitrate_t bitrate, GPIOPin rxpin, GPIOPin txpin);
+		void setBitrate(CAN::bitrate_t bitrate);
 
 		/// enable the can controller and start the CANController Task
 		void enable();
@@ -167,18 +172,18 @@ class CANController : public Task
 		CAN::error_counters_t getErrorCounters();
 
 		/// send a CANMessage object
-		void sendMessage(CANMessage *msg);
+		bool sendMessage(CANMessage *msg);
 
 		/// send a empty message (DLC 0)
 		/** @param id the CAN message id */
-		void sendMessage(uint32_t id);
+		bool sendMessage(uint32_t id);
 
 		/// send a message with DLC 1
 		/**
 		 * @param id the CAN message id
 		 * @param b1 the first (and only) data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1);
+		bool sendMessage(uint32_t id, uint8_t b1);
 
 		/// send a message with DLC 2
 		/**
@@ -186,7 +191,7 @@ class CANController : public Task
 		 * @param b1 the first data byte
 		 * @param b2 the second data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2);
 
 		/// send a message with DLC 3
 		/**
@@ -195,7 +200,7 @@ class CANController : public Task
 		 * @param b2 the second data byte
 		 * @param b3 the third data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3);
 
 		/// send a message with DLC 4
 		/**
@@ -205,7 +210,7 @@ class CANController : public Task
 		 * @param b3 the third data byte
 		 * @param b4 the fourth data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4);
 
 		/// send a message with DLC 5
 		/**
@@ -216,7 +221,7 @@ class CANController : public Task
 		 * @param b4 the fourth data byte
 		 * @param b5 the fifth data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5);
 
 		/// send a message with DLC 6
 		/**
@@ -228,7 +233,7 @@ class CANController : public Task
 		 * @param b5 the fifth data byte
 		 * @param b6 the sixth data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6);
 
 		/// send a message with DLC 7
 		/**
@@ -241,7 +246,7 @@ class CANController : public Task
 		 * @param b6 the sixth data byte
 		 * @param b7 the seventh data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7);
 
 		/// send a message with DLC 8
 		/**
@@ -255,12 +260,20 @@ class CANController : public Task
 		 * @param b7 the seventh data byte
 		 * @param b8 the eighth data byte
 		 */
-		void sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7, uint8_t b8);
+		bool sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7, uint8_t b8);
+
+		/// send a message with specified DLC and data array
+		/**
+		 * @param id the CAN message id
+		 * @param dlc length of message's payload
+		 * @param data payload to send
+		 */
+		bool sendMessage(uint32_t id, uint8_t dlc, void const *data);
 
 		bool registerObserver(CANObserver *observer);
 		bool registerObserver(CANObserver *observer, int32_t can_id, uint32_t mask=0xFFFFFFFF);
 		int unregisterObserver(CANObserver *observer);
-		void returnMessageNotifyObject(CANMessageNotifyObject *obj);
+		void returnMessageToPool(CANMessage *obj);
 
 		/// create and register a CANCyclicMessage. deprecated.
 		void registerCyclicMessage(CANMessage *msg, uint32_t interval);
@@ -279,6 +292,9 @@ class CANController : public Task
 
 		/// don't actually send any messages (e.g. to respect network management)
 		void setSilent(bool beSilent);
+
+		/// get this controller's channel
+		CAN::channel_t getChannel() { return _channel; }
 
 };
 

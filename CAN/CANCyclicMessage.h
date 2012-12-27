@@ -64,8 +64,18 @@ public:
 	 * @param id the can id of the transmitted message
 	 * @param dlc DLC of the transmitted message
 	 * @param interval interval the cyclic message is sent in (in ms)
+	 * @param offset timing offset of the cyclic message (in ms)
 	 */
 	CANCyclicMessage(uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset=0);
+
+	/**
+	 * @param canCtrl CANController to which this message should be registered
+	 * @param id the can id of the transmitted message
+	 * @param dlc DLC of the transmitted message
+	 * @param interval interval the cyclic message is sent in (in ms)
+	 * @param offset timing offset of the cyclic message (in ms)
+	 */
+	CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset=0);
 
 	/// (temporarily) disable transmission of the message.
 	void disable() { _enabled = false; };
@@ -104,6 +114,9 @@ public:
 
 	/// assign data[index] of the transmitted message to value
 	void setDataByte(uint8_t index, uint8_t value);
+
+	/// return data[index] of the transmitted message
+	uint8_t getDataByte(uint8_t index);
 
 	bool isExtendedId();
 	void setExtendedId(bool extended);

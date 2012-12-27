@@ -124,9 +124,12 @@ class GPIOPin {
 	private:
 		uint8_t _port_pin;
 		GPIOPin(uint8_t port, uint8_t pin);
-		uint8_t  getPins();
 
 	public:
+		static GPIOPin invalid;
+		GPIOPin();
+		bool isValid() { return _port_pin!=0xFF; }
+
 		/// enable GPIO port peripheral
 		/**
 		 * enables the pin's port peripheral.
@@ -231,6 +234,10 @@ class GPIOPin {
 		/// get the corresponding GPIO port
 		/** @result the gpio port the pin belongs to */
 		GPIOPort *getPort();
+		uint8_t  getPins();
+
+		bool operator==(const GPIOPin &other) const { return other._port_pin == _port_pin; }
+		bool operator!=(const GPIOPin &other) const { return other._port_pin != _port_pin; }
 
 	public:
 		void mapAsC0O();
@@ -392,6 +399,7 @@ class GPIOPort {
 		GPIOPin getPin(uint8_t pin)  { return GPIOPin( _portNumber, pin ); }
 		GPIOPin operator[] (uint8_t pin) { return GPIOPin( _portNumber, pin ); }
 
+		uint32_t getBase() { return _base; }
 };
 
 #endif /* GPIO_H_ */
