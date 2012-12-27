@@ -29,6 +29,7 @@
 #include "assert.h"
 
 #include <StellarisWare/inc/hw_types.h>
+#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/rom.h>
 
@@ -36,7 +37,7 @@ QTouch::QTouch(SPIController *spi, GPIOPin enablePin):
 	_hasEnablePin(true), _spi(spi), _enablePin(enablePin)
 {
 //	_delay_150us = ROM_SysCtlClockGet() / 10000; // 300us
-	_delay_150us = ROM_SysCtlClockGet() / 20000; // 150us
+	_delay_150us = MAP_SysCtlClockGet() / 20000; // 150us
 	enablePin.enablePeripheral();
 	enablePin.configureAsOutput();
 	enablePin.setHigh();
@@ -45,7 +46,7 @@ QTouch::QTouch(SPIController *spi, GPIOPin enablePin):
 QTouch::QTouch(SPIController *spi):
 	_hasEnablePin(false), _spi(spi), _enablePin(GPIO::A[0])
 {
-	_delay_150us = ROM_SysCtlClockGet() / 10000; // 300us
+	_delay_150us = MAP_SysCtlClockGet() / 10000; // 300us
 }
 
 uint8_t QTouch::writeReadOneByte(uint8_t write_data)
