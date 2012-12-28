@@ -34,7 +34,7 @@
 #include <StellarisWare/driverlib/i2c.h>
 #include <StellarisWare/driverlib/interrupt.h>
 #include <openstella/OS/Task.h>
-#include <openstella/OS/Mutex.h>
+#include "OS/CriticalSection.h"
 
 void I2C0IntHandler(void) {
 	I2CController::_controllers[0]->handleInterrupt();
@@ -62,8 +62,7 @@ void I2CController::handleInterrupt()
 I2CController *I2CController::_controllers[controller_count];
 I2CController *I2CController::get(controller_t controller)
 {
-	static Mutex lock;
-	MutexGuard guard(&lock);
+	CriticalSection critical();
 
 	if (!_controllers[controller])
 	{
