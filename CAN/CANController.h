@@ -31,12 +31,12 @@
 #include "openstella/OS/Queue.h"
 #include "openstella/OS/Mutex.h"
 #include "CANtypes.h"
-#include "CANMessageObject.h"
 #include "CANObserver.h"
 #include "CANCyclicMessage.h"
 #include "../generics/FragmentedList.h"
+#include "../generics/LinkedList.h"
 #include "../GPIO.h"
-#include "CANMessagePool.h"
+#include "CANControllerTask.h"
 
 #ifdef PART_LM3S9B81
   #define HAS_CAN_CHANNEL_0
@@ -73,75 +73,65 @@ class CANObserver;
  *
  */
 
-class CANController : public Task
+class CANController
 {
 	friend void CAN0IntHandler();
 	friend void CAN1IntHandler();
 	friend void CAN2IntHandler();
 	friend class CANMessageObject;
+	friend class CANControllerTask;
 
 	private:
 
-		static const uint8_t observer_list_length = 10;
-		static const uint8_t cyclic_list_fragment_length = 10;
+		class ObserverListEntry {
+			public:
+				int32_t can_id;
+				uint32_t mask;
+				CANObserver* observer;
 
-		typedef struct {
-			int32_t can_id;
-			uint32_t mask;
-			CANObserver* observer;
-		} observer_list_entry_t;
+				bool matches(int32_t match_can_id, uint32_t match_mask, CANObserver *match_observer) {
+					return (can_id==match_can_id) && (mask==match_mask) && (observer==match_observer);
+				}
 
-		struct observer_list_t {
-			observer_list_entry_t entries[observer_list_length];
-			observer_list_t* next;
+				bool matches(CANMessage *msg) {
+					return ( (msg->id & mask) == (can_id & mask) );
+				}
 		};
 
+		typedef LinkedList<ObserverListEntry> ObserverList;
+
+		bool _isEnabled;
+		Queue<uint8_t> _availableSendingMOBs;
+
 		FragmentedList<CANCyclicMessage,10> _cyclicMessages;
+		static const uint8_t cyclic_list_fragment_length = 10;
 
 		static CANController *_controllers[3];
+		CANControllerTask *_controllerTask;
 
 		CAN::channel_t _channel;
 		uint32_t _periph;
 		uint32_t _base;
 
-		CANMessageObject _mobs[32];
-
-		observer_list_t *_observers;
-		Queue<uint8_t> _isrToThreadQueue;
+		ObserverList _observers;
 		Mutex _observerMutex;
 		uint32_t _lastMessageReceivedTimestamp;
 
 		bool _silent;
-		CANMessagePool _pool;
 
 		CANController(CAN::channel_t channel, uint32_t periph, uint32_t base);
 		void enableInterrupts(uint32_t interruptFlags);
 		void disableInterrupts(uint32_t interruptFlags);
 		void handleInterrupt();
-		void notifyObservers(CANMessageObject *obj);
-
-		observer_list_t *createObserverListFragment();
+		void notifyMOBInterrupt(bool rxOk, bool txOk, uint8_t mob_id);
+		void notifyObservers(CANMessage *msg);
 
 		uint32_t getControlRegister();
 		uint32_t getTxRequestRegister();
 		uint32_t getNewDataRegister();
 		uint32_t getMobEnabledRegister();
 
-		uint8_t findFreeSendingMOB();
-
-		CANMessageObject* getMessageObject(uint8_t mob_id);
-
 		uint32_t sendCyclicCANMessages();
-
-	protected:
-		/// the CAN Controller task routine
-		/**
-		 * \li receives messages from the CAN ISR
-		 * \li dispatches messages to the CANObserver s
-		 * \li garbage collects delivered CANMessages
-		 * \li sends CANCyclicMessages
-		 */
-		virtual void execute();
 
 	public:
 		/// get CANController instance
@@ -273,7 +263,6 @@ class CANController : public Task
 		bool registerObserver(CANObserver *observer);
 		bool registerObserver(CANObserver *observer, int32_t can_id, uint32_t mask=0xFFFFFFFF);
 		int unregisterObserver(CANObserver *observer);
-		void returnMessageToPool(CANMessage *obj);
 
 		/// create and register a CANCyclicMessage. deprecated.
 		void registerCyclicMessage(CANMessage *msg, uint32_t interval);

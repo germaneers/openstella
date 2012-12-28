@@ -26,6 +26,9 @@
 
 #include <stdint.h>
 #include "CANtypes.h"
+#include <StellarisWare/inc/hw_types.h>
+#include <StellarisWare/driverlib/can.h>
+
 /**
  * @class CANMessage
  * @brief data structure for CAN Messages
@@ -34,6 +37,8 @@ class CANController;
 
 class CANMessage {
 	friend class CANMessageObject;
+	private:
+		int _referenceCounter;
 	protected:
 		uint8_t _flags;
 		CANController *_receivingController;
@@ -70,7 +75,11 @@ class CANMessage {
 
 		uint64_t extractSignal(uint8_t startBit, uint8_t bitCount);
 
-		void returnMessageToPool();
+		void loadFromMOB(CANController *receivingController, tCANMsgObject *mob);
+
+		void incrementReferenceCounter();
+		bool decrementReferenceCounter();
+		int getReferenceCounter();
 };
 
 #endif /* CANMESSAGE_H_ */

@@ -28,9 +28,10 @@
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_can.h>
 #include <StellarisWare/driverlib/can.h>
+#include "../OS/CriticalSection.h"
 
 CANMessage::CANMessage(uint32_t id, uint8_t dlc)
-  : _flags(0), _receivingController(0), id(id), dlc(dlc)
+  : _referenceCounter(0), _flags(0), _receivingController(0), id(id), dlc(dlc)
 {
 	memset(data, 0, 8);
 	setExtendedId(id>=0x800);
@@ -92,10 +93,14 @@ void CANMessage::assign(const CANMessage *msg)
 	memcpy(data, msg->data, sizeof(data));
 }
 
-void CANMessage::returnMessageToPool()
-{
-	_receivingController->returnMessageToPool(this);
+void CANMessage::loadFromMOB(CANController *receivingController, tCANMsgObject* mob) {
+	_receivingController = receivingController;
+	id = mob->ulMsgID;
+	dlc = mob->ulMsgLen;
+	_flags = mob->ulFlags & (MSG_OBJ_EXTENDED_ID | MSG_OBJ_REMOTE_FRAME);
+	memcpy(data, mob->pucMsgData, sizeof(data));
 }
+
 
 uint64_t CANMessage::extractSignal(uint8_t startBit, uint8_t bitCount)
 {
@@ -115,3 +120,17 @@ uint64_t CANMessage::extractSignal(uint8_t startBit, uint8_t bitCount)
 	return result;
 }
 
+void CANMessage::incrementReferenceCounter() {
+	CriticalSection critical();
+	++_referenceCounter;
+}
+
+bool CANMessage::decrementReferenceCounter() {
+	CriticalSection critical();
+	return (--_referenceCounter) == 0;
+}
+
+int CANMessage::getReferenceCounter() {
+	CriticalSection critical();
+	return _referenceCounter;
+}

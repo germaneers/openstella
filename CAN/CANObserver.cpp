@@ -49,7 +49,9 @@ bool CANObserver::getCANMessage(CANMessage *msg, uint32_t timeout)
 	CANMessage *obj;
 	if (_queue.receive(&obj, timeout)) {
 		msg->assign(obj);
-		obj->returnMessageToPool();
+		if (obj->decrementReferenceCounter()) {
+			delete(obj);
+		}
 		return true;
 	} else {
 		return false;
