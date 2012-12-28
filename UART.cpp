@@ -40,15 +40,15 @@
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/rom.h>
 #include <StellarisWare/driverlib/rom_map.h>
+#include "OS/CriticalSection.h"
 
 
 UARTController *UARTController::_instances[] = { 0, 0, 0 };
 
 UARTController *UARTController::get(controller_num_t num)
 {
+	CriticalSection critical();
 	if (!_instances[num]) {
-		static Mutex mutex;
-		MutexGuard guard(&mutex);
 		_instances[num] = new UARTController(num);
 	}
 	return _instances[num];
