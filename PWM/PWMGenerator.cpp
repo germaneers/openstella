@@ -29,6 +29,7 @@
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/pwm.h>
+#include "../OS/CriticalSection.h"
 
 PWMGenerator* PWMGenerator::_generators[3] = {0,0,0};
 
@@ -56,8 +57,8 @@ PWMGenerator::PWMGenerator(generator_num_t generator_num)
 
 PWMGenerator *PWMGenerator::get(generator_num_t generator_num)
 {
-	static Mutex mutex;
-	MutexGuard guard(&mutex);
+	CriticalSection critical();
+
 	if (_generators[generator_num]==0)
 	{
 		_generators[generator_num] = new PWMGenerator(generator_num);
