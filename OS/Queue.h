@@ -62,6 +62,10 @@ template <class T> class Queue
 			return uxQueueMessagesWaiting(_hnd);
 		}
 
+		uint16_t getLength() {
+			return _length;
+		}
+
 		bool isFull() {
 			return (messagesWaiting()>=_length);
 		}
