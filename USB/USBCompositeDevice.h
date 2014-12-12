@@ -26,25 +26,14 @@
 
 #include "USBDevice.h"
 #include "USBCompositeDeviceDescriptor.h"
+#include "../generics/LinkedList.h"
 
 class USBCompositeDevice : public USBDevice {
 private:
-
-	class USBDeviceListItem {
-		public:
-			USBDevice *data;
-			USBDeviceListItem *next;
-			USBDeviceListItem(USBDevice *newData=0) : data(newData), next(0) {};
-	};
-
-	USBDeviceListItem *_devices;
-
-	uint32_t calcCompositeSize();
-
+	LinkedList<USBDevice*> _devices;
 public:
-	USBCompositeDevice(USBController *controller=0);
+	USBCompositeDevice(USBController *controller);
 	void addDevice(USBDevice *device);
-	uint8_t countDevices();
 	virtual uint32_t getCompositeSize() { return 0; }
 	virtual tDeviceInfo *getDeviceInfoStruct()  { return 0; }
 	USBCompositeDeviceDescriptor *getUSBCompositeDeviceDescriptor() { return (USBCompositeDeviceDescriptor*) _deviceDescriptor; }

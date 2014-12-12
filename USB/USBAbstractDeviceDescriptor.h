@@ -42,11 +42,12 @@ protected:
 	pchar *_stringDescriptors;
 
 	char *makeDescriptorString(const char *s);
-	void setDescriptorString(uint8_t desc_num, const char *s);
 
 	USBAbstractDeviceDescriptor(uint8_t numStringDescriptors);
 
 public:
+	void setDescriptorString(uint8_t desc_num, const char *s);
+
 	virtual void setStringDescriptors(pchar *_stringDescriptors) = 0;
 	virtual void setNumStringDescriptors(unsigned long num) = 0;
 	virtual void setCallbackData(void *cbdata) = 0;

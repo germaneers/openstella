@@ -100,6 +100,7 @@ class UARTController
 		wordlength_t _wordlength;
 		parity_t _parity;
 		stopbits_t _stopbits;
+		bool _useRxInterrupt;
 
 
 	public:
@@ -111,7 +112,7 @@ class UARTController
 		void enable();
 		void disable();
 
-		void setup(GPIOPin rxpin=GPIOPin::invalid, GPIOPin txpin=GPIOPin::invalid, uint32_t baudrate=115200, wordlength_t wordLength=wordlength_8bit, parity_t parity=parity_none, stopbits_t stopbits=stopbits_1);
+		void setup(GPIOPin rxpin=GPIOPin::invalid, GPIOPin txpin=GPIOPin::invalid, uint32_t baudrate=115200, wordlength_t wordLength=wordlength_8bit, parity_t parity=parity_none, stopbits_t stopbits=stopbits_1, bool use_rx_interrupt=true);
 
 		void setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
 		void setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin);
@@ -141,6 +142,7 @@ class UARTController
 		bool isFIFOSpaceAvail();
 		void putCharNonblocking(uint8_t c);
 		int16_t getCharNonBlocking();
+		int16_t getCharTimeout(uint32_t timeout);
 
 		void enableSIR(bool lowPower); // disable() enableSIR(); enable()
 		void disableSIR();

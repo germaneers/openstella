@@ -40,6 +40,8 @@ class Semaphore
 		bool give();
 		bool giveFromISR(int32_t *higherPriorityTaskWoken);
 		bool giveFromISR();
+
+		void addToRegistry(char *name);
 };
 
 #endif /* SEMAPHORE_H_ */

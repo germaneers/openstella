@@ -29,7 +29,6 @@
 #include "assert.h"
 
 #include <StellarisWare/inc/hw_types.h>
-#include <StellarisWare/driverlib/rom_map.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/rom.h>
 
@@ -37,7 +36,7 @@ QTouch::QTouch(SPIController *spi, GPIOPin enablePin):
 	_hasEnablePin(true), _spi(spi), _enablePin(enablePin)
 {
 //	_delay_150us = ROM_SysCtlClockGet() / 10000; // 300us
-	_delay_150us = MAP_SysCtlClockGet() / 20000; // 150us
+	_delay_150us = ROM_SysCtlClockGet() / 20000; // 150us
 	enablePin.enablePeripheral();
 	enablePin.configureAsOutput();
 	enablePin.setHigh();
@@ -46,7 +45,7 @@ QTouch::QTouch(SPIController *spi, GPIOPin enablePin):
 QTouch::QTouch(SPIController *spi):
 	_hasEnablePin(false), _spi(spi), _enablePin(GPIO::A[0])
 {
-	_delay_150us = MAP_SysCtlClockGet() / 10000; // 300us
+	_delay_150us = ROM_SysCtlClockGet() / 10000; // 300us
 }
 
 uint8_t QTouch::writeReadOneByte(uint8_t write_data)
@@ -54,7 +53,9 @@ uint8_t QTouch::writeReadOneByte(uint8_t write_data)
 	uint8_t result;
 	if (_hasEnablePin) _enablePin.setLow();
 	SysCtlDelay(_delay_150us);
-	result = _spi->writeAndReadBlocking(write_data);
+
+	_spi->writeAndRead(&write_data, &result, 1);
+
 	if (_hasEnablePin) _enablePin.setHigh();
 	return result;
 }
@@ -89,10 +90,12 @@ void QTouch::configure(void)
 	if (x!=0xF2) { // not initialized / default config?
 		if (_hasEnablePin) _enablePin.setLow();
 		SysCtlDelay(_delay_150us);
-		_spi->writeAndReadBlocking(0x01);
+
+		uint8_t data = 0x01;
+		_spi->write(&data, 1);
 		for (uint8_t i=0; i<sizeof(defaultData); i++) {
 			SysCtlDelay(_delay_150us);
-			_spi->writeAndReadBlocking(defaultData[i]);
+			_spi->write(&defaultData[i], 1);
 		}
 		if (_hasEnablePin) _enablePin.setHigh();
 		SysCtlDelay(_delay_150us);
@@ -115,8 +118,8 @@ void QTouch::saveConfiguration()
 uint8_t QTouch::sendCommandReadOneByte(uint8_t cmd)
 {
 	uint8_t result;
-
 	uint8_t answer;
+
 	do {
 		if (_hasEnablePin) {
 			_enablePin.setHigh();
@@ -124,11 +127,12 @@ uint8_t QTouch::sendCommandReadOneByte(uint8_t cmd)
 			_enablePin.setLow();
 		}
 		SysCtlDelay(_delay_150us);
-		answer = _spi->writeAndReadBlocking(cmd);
+		_spi->writeAndRead(&cmd, &answer, 1);
 	} while (answer!=0x55);
 
 	SysCtlDelay(_delay_150us);
-	result = _spi->writeAndReadBlocking(0);
+
+	_spi->read(&result, 1);
 
 	if (_hasEnablePin) _enablePin.setHigh();
 	return result;
@@ -142,7 +146,7 @@ uint16_t QTouch::sendCommandReadTwoBytes(uint8_t cmd)
 	uint8_t answer;
 	while(1) {
 		SysCtlDelay(_delay_150us);
-		answer = _spi->writeAndReadBlocking(cmd);
+		_spi->writeAndRead(&cmd, &answer, 1);
 		if (answer==0x55) break;
 
 		// command write failed. retry.
@@ -151,10 +155,13 @@ uint16_t QTouch::sendCommandReadTwoBytes(uint8_t cmd)
 		if (_hasEnablePin) _enablePin.setLow();
 	}
 
+	uint8_t b1, b2;
 	SysCtlDelay(_delay_150us);
-	result = _spi->writeAndReadBlocking(0) << 8;
+	_spi->read(&b1, 1);
 	SysCtlDelay(_delay_150us);
-	result |= _spi->writeAndReadBlocking(0);
+	_spi->read(&b2, 1);
+
+	result = (b1<<8) | b2;
 
 	if (_hasEnablePin) _enablePin.setHigh();
 	return result;

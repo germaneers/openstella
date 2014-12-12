@@ -31,6 +31,7 @@ CANCyclicMessage::CANCyclicMessage(CANMessage *msg, uint16_t interval, uint16_t 
 	_offset(offset),
 	_enabled(true)
 {
+	_timestamp_next_send = Task::getTime() + _offset;
 }
 
 CANCyclicMessage::CANCyclicMessage(uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset) :
@@ -39,35 +40,17 @@ CANCyclicMessage::CANCyclicMessage(uint32_t id, uint8_t dlc, uint16_t interval, 
 	_enabled(true)
 {
 	_msg = new CANMessage(id, dlc);
+	_timestamp_next_send = Task::getTime() + _offset;
 }
 
-CANCyclicMessage::CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset) :
+CANCyclicMessage::CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset, bool isEnabled) :
 	_interval(interval),
 	_offset(offset),
-	_enabled(true)
+	_enabled(isEnabled)
 {
 	_msg = new CANMessage(id, dlc);
+	_timestamp_next_send = Task::getTime() + _offset;
 	can->registerCyclicMessage(this);
-}
-
-
-
-
-bool CANCyclicMessage::shouldBeSentAt(uint32_t timestamp)
-{
-	return _enabled && ((timestamp % _interval) == _offset);
-}
-
-
-
-uint32_t CANCyclicMessage::timeTillNextSend(uint32_t timestamp)
-{
-	if (!_enabled) return 0xFFFFFFFF;
-	if ( _offset > timestamp ) {
-		return _offset - timestamp;
-	} else {
-		return _interval - ((timestamp - _offset) % _interval);
-	}
 }
 
 
@@ -217,6 +200,24 @@ bool CANCyclicMessage::isRemoteFrame()
 	return _msg->isRemoteFrame();
 }
 
+
+void CANCyclicMessage::setDataBit(uint8_t byteIndex, uint8_t bitIndex, bool state)
+{
+	uint8_t data;
+
+	RecursiveMutexGuard guard(&_lock);
+	if ((byteIndex) < 8 && (bitIndex < 8)) {
+		data = _msg->data[byteIndex];
+		if (state) {
+			data |= (1<<bitIndex);
+		}
+		else {
+			data &= ~(1<<bitIndex);
+		}
+		_msg->data[byteIndex] = data;
+	}
+
+}
 
 
 void CANCyclicMessage::setRemoteFrame(bool remote)

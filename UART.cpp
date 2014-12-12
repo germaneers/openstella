@@ -27,8 +27,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #include <openstella/OS/Mutex.h>
+#include <openstella/OS/Task.h>
 
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/inc/hw_uart.h>
@@ -40,15 +42,17 @@
 #include <StellarisWare/driverlib/interrupt.h>
 #include <StellarisWare/driverlib/rom.h>
 #include <StellarisWare/driverlib/rom_map.h>
-#include "OS/CriticalSection.h"
+
+#include "openstelladefaults.h"
 
 
 UARTController *UARTController::_instances[] = { 0, 0, 0 };
 
 UARTController *UARTController::get(controller_num_t num)
 {
-	CriticalSection critical();
 	if (!_instances[num]) {
+		static Mutex mutex;
+		MutexGuard guard(&mutex);
 		_instances[num] = new UARTController(num);
 	}
 	return _instances[num];
@@ -69,28 +73,29 @@ void UART2IntHandler(void) {
 
 UARTController::UARTController(controller_num_t num) :
 	_num(num),
-	_queue(64),
+	_queue(OPENSTELLA_UART_QUEUESIZE),
 	_enabled(false),
 	_baudrate(115200),
 	_wordlength(wordlength_8bit),
 	_parity(parity_none),
-	_stopbits(stopbits_1)
+	_stopbits(stopbits_1),
+	_useRxInterrupt(true)
 {
 	switch (num) {
 		case controller_0:
 			_periph = SYSCTL_PERIPH_UART0;
 			_base = UART0_BASE;
-			_queue.addToRegistry("UART0");
+			_queue.addToRegistry((char*)"UART0");
 			break;
 		case controller_1:
 			_periph = SYSCTL_PERIPH_UART1;
 			_base = UART1_BASE;
-			_queue.addToRegistry("UART1");
+			_queue.addToRegistry((char*)"UART1");
 			break;
 		case controller_2:
 			_periph = SYSCTL_PERIPH_UART2;
 			_base = UART2_BASE;
-			_queue.addToRegistry("UART2");
+			_queue.addToRegistry((char*)"UART2");
 			break;
 	}
 }
@@ -130,8 +135,9 @@ void UARTController::enablePeripheral()
 	MAP_SysCtlPeripheralEnable(_periph);
 }
 
-void UARTController::setup(GPIOPin rxpin, GPIOPin txpin, uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits)
+void UARTController::setup(GPIOPin rxpin, GPIOPin txpin, uint32_t baudrate, wordlength_t wordLength, parity_t parity, stopbits_t stopbits, bool use_rx_interrupt)
 {
+	_useRxInterrupt = use_rx_interrupt;
 	enablePeripheral();
 
 	if (!rxpin.isValid()) {
@@ -171,28 +177,37 @@ void UARTController::setup(GPIOPin rxpin, GPIOPin txpin, uint32_t baudrate, word
 		case controller_0:
 			rxpin.mapAsU0RX();
 			txpin.mapAsU0TX();
-			UARTIntRegister(UART0_BASE, UART0IntHandler);
-			MAP_IntPrioritySet(INT_UART0, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			MAP_IntEnable(INT_UART0);
+			if (_useRxInterrupt) {
+				UARTIntRegister(UART0_BASE, UART0IntHandler);
+				MAP_IntPrioritySet(INT_UART0, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
+				MAP_IntEnable(INT_UART0);
+			}
 			break;
 		case controller_1:
 			rxpin.mapAsU1RX();
 			txpin.mapAsU1TX();
-			UARTIntRegister(UART1_BASE, UART1IntHandler);
-			MAP_IntPrioritySet(INT_UART1, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			MAP_IntEnable(INT_UART1);
+			if (_useRxInterrupt) {
+				UARTIntRegister(UART1_BASE, UART1IntHandler);
+				MAP_IntPrioritySet(INT_UART1, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
+				MAP_IntEnable(INT_UART1);
+			}
 			break;
 		case controller_2:
 			rxpin.mapAsU2RX();
 			txpin.mapAsU2TX();
-			UARTIntRegister(UART2_BASE, UART2IntHandler);
-			MAP_IntPrioritySet(INT_UART2, configMAX_SYSCALL_INTERRUPT_PRIORITY);
-			MAP_IntEnable(INT_UART2);
+			if (_useRxInterrupt) {
+				UARTIntRegister(UART2_BASE, UART2IntHandler);
+				MAP_IntPrioritySet(INT_UART2, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
+				MAP_IntEnable(INT_UART2);
+			}
 			break;
 	}
 
 	MAP_UARTFIFOEnable(_base);
-	//MAP_UARTIntEnable(_base, UART_INT_RX | UART_INT_RT);
+
+	if (_useRxInterrupt) {
+		MAP_UARTIntEnable(_base, UART_INT_RX | UART_INT_RT);
+	}
 
 	setLineParameters(baudrate, wordLength, parity, stopbits);
 }
@@ -219,18 +234,28 @@ bool UARTController::isTransmitting()
 
 void UARTController::putChar(uint8_t c)
 {
-	MAP_UARTCharPut(_base, c);
+    while(HWREG(_base + UART_O_FR) & UART_FR_TXFF)
+    {
+    	Task::yield();
+    }
+    HWREG(_base + UART_O_DR) = c;
 }
 
 uint8_t UARTController::getChar(void)
 {
-	return UARTCharGet(_base);
-	uint8_t result = 0;
-	while (!_queue.receive(&result)) {
-		static int receive_err = 0;
-		receive_err++;
+	if (_useRxInterrupt) {
+		uint8_t result = 0;
+		while (!_queue.receive(&result)) {
+			static int receive_err = 0;
+			receive_err++;
+		}
+		return result;
+	} else {
+	    while(HWREG(_base + UART_O_FR) & UART_FR_RXFE) {
+	    	Task::yield();
+	    }
+	    return(HWREG(_base + UART_O_DR));
 	}
-	return result;
 }
 
 void UARTController::enableFIFO()
@@ -284,8 +309,37 @@ void UARTController::putCharNonblocking(uint8_t c)
 
 int16_t UARTController::getCharNonBlocking()
 {
-	return MAP_UARTCharGetNonBlocking(_base);
+	uint8_t data;
+	if (_useRxInterrupt) {
+		if (_queue.receive(&data, 0)) {
+			return data;
+		} else {
+			return -1;
+		}
+	} else {
+		return MAP_UARTCharGetNonBlocking(_base);
+	}
 }
+
+int16_t UARTController::getCharTimeout(uint32_t timeout) {
+	uint8_t data;
+	if (_useRxInterrupt) {
+		if (_queue.receive(&data, timeout)) {
+			return data;
+		} else {
+			return -1;
+		}
+	} else {
+		uint32_t t_max = Task::getTime() + timeout;
+		while (Task::getTime() <= t_max) {
+			int result = MAP_UARTCharGetNonBlocking(_base);
+			if (result!=-1) { return result; }
+			Task::delay_ticks(1);
+		}
+		return MAP_UARTCharGetNonBlocking(_base);
+	}
+}
+
 
 void UARTController::enableSIR(bool lowPower)
 {
@@ -357,7 +411,8 @@ void UARTController::setupLinMaster(uint32_t baudrate, GPIOPin rxpin, GPIOPin tx
 
 void UARTController::setupLinSlave(uint32_t baudrate, GPIOPin rxpin, GPIOPin txpin)
 {
-	setup(rxpin, txpin, baudrate, wordlength_8bit, parity_none, stopbits_1);
+	setup(rxpin, txpin, baudrate, wordlength_8bit, parity_none, stopbits_1, false);
+	setFIFORxLevel(UARTController::fifo_rx_level_1_8);
 	enableFIFO();
 	HWREG(_base + UART_O_LCTL) |= UART_LCTL_BLEN_16T;
 	HWREG(_base + UART_O_CTL)  |= UART_CTL_LIN;
@@ -497,9 +552,4 @@ int UARTController::readLine(const void *buf, int bufSize)
 	data[i] = 0x00;
 	return i;
 }
-
-
-
-
-
 

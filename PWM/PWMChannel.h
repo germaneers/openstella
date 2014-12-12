@@ -23,8 +23,20 @@
 #ifndef PWMCHANNEL_H_
 #define PWMCHANNEL_H_
 
+#if (defined PART_LM3S9D92) || (defined PART_LM3S9B92) || (defined PART_LM3S9D96) || (defined PART_LM3S9B96)
+  #define HAS_PWM_GENERATORS
+#endif
+
+#if (defined PART_LM3S9D96) || (defined PART_LM3S9B96)
+  #define HAS_PWM_GENERATOR3
+#endif
+
+
 #include <stdint.h>
 #include <openstella/GPIO.h>
+#include "PWMGenerator.h"
+
+#ifdef HAS_PWM_GENERATORS
 
 class PWMGenerator;
 
@@ -37,7 +49,12 @@ public:
 		channel_2,
 		channel_3,
 		channel_4,
-		channel_5
+		channel_5,
+#ifdef HAS_PWM_GENERATOR3
+
+		channel_6,
+		channel_7
+#endif
 	} channel_t;
 private:
 	PWMGenerator *_generator;
@@ -53,5 +70,7 @@ public:
 	void setPulseWidth(uint16_t pulseWidth);
 	PWMGenerator *getGenerator();
 };
+
+#endif /* HAS_PWM_GENERATORS */
 
 #endif /* PWMCHANNEL_H_ */

@@ -443,8 +443,8 @@ void Timer::registerInterruptHandler(void(*pfnHandler)(void), half_t channel)
 
 void Timer::enableInterrupt(uint32_t flags)
 {
-	MAP_IntPrioritySet(getInterruptNumber(channel_A), configMAX_SYSCALL_INTERRUPT_PRIORITY);
-	MAP_IntPrioritySet(getInterruptNumber(channel_B), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(getInterruptNumber(channel_A), configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(getInterruptNumber(channel_B), configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
 	MAP_TimerIntEnable(getBase(), flags);
 	IntEnable(getInterruptNumber(channel_A));
 	//IntEnable(getInterruptNumber(channel_B));
@@ -484,3 +484,10 @@ void Timer::setInterruptCallback(VoidFunctorBase *callback)
 	}
 	_interruptCallback = callback;
 }
+
+void Timer::setPrescaler(half_t half, uint8_t clockticks)
+{
+	MAP_TimerPrescaleSet(getBase(), half, clockticks);
+}
+
+

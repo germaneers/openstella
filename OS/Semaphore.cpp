@@ -23,6 +23,7 @@
 
 #include "Semaphore.h"
 #include <openstella/OS/Task.h>
+#include <freertos/include/queue.h>
 
 Semaphore::Semaphore()
 {
@@ -61,4 +62,7 @@ Semaphore::~Semaphore()
 	vSemaphoreDelete(_hnd);
 }
 
-
+void Semaphore::addToRegistry(char* name)
+{
+	vQueueAddToRegistry(_hnd, (signed char *)name);
+}

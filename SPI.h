@@ -28,9 +28,18 @@
 
 #include <stdint.h>
 #include <openstella/GPIO.h>
+#include <openstella/OS/Queue.h>
+#include <openstella/OS/Semaphore.h>
+#include <openstella/UDMAController.h>
+
+extern "C" {
+	void SSI0IntHandler(void);
+	void SSI1IntHandler(void);
+}
 
 class SPIController {
-
+	friend void SSI0IntHandler(void);
+	friend void SSI1IntHandler(void);
 public:
 
 	typedef enum {
@@ -76,23 +85,58 @@ private:
 	uint32_t _base;
 	data_width_t _data_width;
 	uint16_t _read_mask;
+	uint32_t _dummyRx;
+	uint32_t _dummyTx;
 
 	GPIOPin _clk;
 	GPIOPin _fss;
 	GPIOPin _rx;
 	GPIOPin _tx;
+	GPIOPin _interruptPin;
+
+	mode_t _mode;
+	bool _dmaTxActive;
+	bool _dmaRxActive;
+	Semaphore _dmaTxReadySema;
+	Semaphore _dmaRxReadySema;
+	Queue<uint8_t> _rxData;
+
+	UDMAController *_dma;
+	UDMAController::channel_t _dmaRxChannel;
+	UDMAController::channel_t _dmaTxChannel;
 
 	static SPIController* _controllers[CONTROLLER_COUNT];
 	SPIController(controller_num_t num);
 	void setupHardware();
+	void handleInterrupt();
 
 public:
 	void enablePeripheral();
-	void setup(GPIOPin clk=GPIOPin(), GPIOPin rx=GPIOPin(), GPIOPin tx=GPIOPin(), GPIOPin fss=GPIOPin());
+	void enableInterrupt();
+	void disableInterrupt();
+
+	void setup(GPIOPin clk=GPIOPin(), GPIOPin rx=GPIOPin(), GPIOPin tx=GPIOPin(), GPIOPin fss=GPIOPin(), GPIOPin interrupt=GPIOPin());
 	void configure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width);
 	void reconfigure(protocol_t protocol, mode_t mode, uint32_t bitrate, data_width_t data_width);
 
-	uint16_t writeAndReadBlocking(uint16_t writeData);
+	int write(const void *buf, int len);
+	int read(void *buf, int len);
+	int writeAndRead(const void *writeBuf, void *readBuf, int len);
+	int writeNoRead(const void *buf, int len);
+	int writeNoDMA(const void *buf, int len);
+	uint8_t readByte();
+
+	bool isTxFIFOSpaceAvail();
+	bool isTxFIFOEmpty();
+	bool isBusy();
+
+	void waitFinish();
+
+
+/*	uint8_t readByte();
+	void writeByte(uint8_t data);
+	uint8_t writeAndReadByte(uint8_t writeData);
+	int readByteFIFO(uint32_t *data); */
 
 	static SPIController* get(controller_num_t num);
 

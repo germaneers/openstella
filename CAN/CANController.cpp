@@ -35,8 +35,10 @@
 #include <StellarisWare/driverlib/rom_map.h>
 
 #include "../OS/Mutex.h"
-#include "../OS/CriticalSection.h"
-#include "../OS/NoTaskSwitchSection.h"
+
+#include <openstellaconfig.h>
+#include "../openstelladefaults.h"
+
 
 void CAN0IntHandler(void) {
 	CANController::_controllers[0]->handleInterrupt();
@@ -55,17 +57,36 @@ void CAN2IntHandler(void) {
 
 
 CANController::CANController(CAN::channel_t channel, uint32_t periph, uint32_t base) :
-	_isEnabled(false),
-	_availableSendingMOBs(16),
+	Task(0, CANCONTROLLER_STACK_SIZE),
 	_channel(channel),
 	_periph(periph),
 	_base(base),
-	_observers(),
 	_observerMutex(),
 	_lastMessageReceivedTimestamp(0),
-	_silent(false)
+	_silent(false),
+	_timeToWaitForFreeMob(100),
+	_bitrate(CAN::bitrate_500kBit),
+	_pool(100),
+	_freeSwMobs(OPENSTELLA_CANCONTROLLER_QUEUESIZE),
+	_usedSwMobs(OPENSTELLA_CANCONTROLLER_QUEUESIZE)
 {
-	_controllerTask = CANControllerTask::getInstance();
+	static const char* tasknames[3] = { "can0", "can1", "can2" };
+	setTaskName(tasknames[channel]);
+
+	int n = sizeof(_swmobs)/sizeof(_swmobs[0]);
+	for (int i=0; i<n; i++) {
+		_freeSwMobs.sendToBack(i);
+		_swmobs[i].pucMsgData = _swMobsData[i];
+	}
+
+	_observers = createObserverListFragment();
+}
+
+CANController::observer_list_t *CANController::createObserverListFragment()
+{
+	CANController::observer_list_t *result = new CANController::observer_list_t;
+	memset(result, 0, sizeof(CANController::observer_list_t));
+	return result;
 }
 
 void CANController::disableInterrupts(uint32_t interruptFlags)
@@ -75,6 +96,7 @@ void CANController::disableInterrupts(uint32_t interruptFlags)
 
 void CANController::setBitrate(CAN::bitrate_t bitrate)
 {
+	_bitrate = bitrate;
 	MAP_CANBitRateSet(_base, MAP_SysCtlClockGet(), bitrate);
 }
 
@@ -105,89 +127,184 @@ void CANController::setup(CAN::bitrate_t bitrate, GPIOPin rxpin, GPIOPin txpin)
 			txpin.mapAsCAN2TX();
 			break;
 #endif
+		default:
+			while (1) { ; } // something bad happened ...
+			break;
 	}
+
 
 	MAP_SysCtlPeripheralEnable(_periph);
 
 	MAP_CANInit(_base);
 	setBitrate(bitrate);
-
 	enableInterrupts(CAN_INT_MASTER | CAN_INT_ERROR | CAN_INT_STATUS);
 
-	tCANMsgObject msgobj;
-	msgobj.ulMsgID = 0;
-	msgobj.ulMsgIDMask = 0;
-	msgobj.ulMsgLen = 8;
-	msgobj.ulFlags = MSG_OBJ_RX_INT_ENABLE | MSG_OBJ_USE_ID_FILTER;
-
-	for (int i=1; i<=32; i++)
+	for (int i=0; i<16; i++)
 	{
-		if (i<=_availableSendingMOBs.getLength()) {
-			_availableSendingMOBs.sendToBack(i);
-		} else {
-			if (i<32) { msgobj.ulFlags |= MSG_OBJ_FIFO; }
-			MAP_CANMessageSet(_base, i, &msgobj, MSG_OBJ_TYPE_RX);
-		}
-	}
-
-}
-
-void CANController::notifyMOBInterrupt(bool rxOk, bool txOk, uint8_t mob_id)
-{
-	if (txOk) {
-		_availableSendingMOBs.sendToBack(mob_id);
-	} else if (rxOk) {
-		_lastMessageReceivedTimestamp = Task::getTime();
-
+		/*
+		CANMessageObject *o = getMessageObject(i);
+		o->id = 0;
+		o->mask = 0;
+		o->dlc = 8;
+		o->setRxIntEnabled(i<10);
+		o->setPartOfFIFO(i<9);
+		o->setUseIdFilter(i<10);
+		o->set(CAN::message_type_rx);
+		*/
 		tCANMsgObject msgobj;
-		MAP_CANMessageGet(_base, mob_id, &msgobj, true);
+		msgobj.ulMsgID = 0;
+		msgobj.ulMsgIDMask = 0;
+		msgobj.ulMsgLen = 8;
+		msgobj.pucMsgData = 0;
+		msgobj.ulFlags = MSG_OBJ_RX_INT_ENABLE | MSG_OBJ_USE_ID_FILTER | ((i<15)?MSG_OBJ_FIFO:0);
+		MAP_CANMessageSet(_base, i+1, &msgobj, MSG_OBJ_TYPE_RX);
+	}
 
-		CANMessage *msg = new CANMessage();
-		msg->loadFromMOB(this, &msgobj);
-		notifyObservers(msg);
+	MAP_CANEnable(_base);
+}
 
-		if (msg->getReferenceCounter()==0) {
-			delete(msg);
+void CANController::execute()
+{
+	while(1) {
+		uint8_t num;
+
+		while (_usedSwMobs.receive(&num, 0)) {
+			tCANMsgObject *msgobj = &_swmobs[num];
+			_lastMessageReceivedTimestamp = getTime();
+			notifyObservers(msgobj);
+			_freeSwMobs.sendToBack(num);
 		}
+
+		uint32_t timeToWait = sendCyclicCANMessages();
+		if (timeToWait>100) timeToWait = 100;
+
+		_usedSwMobs.peek(&num, timeToWait);
+
+		/*
+		_isrToThreadQueue.peek(&num, timeToWait);
+
+		uint32_t status = getControlRegister(); // also clears the interrupt
+		if (status & 0xE0) { // bus off, error warning level or error passive
+			MAP_CANDisable(_base);
+			delay_ms(10);
+
+			MAP_CANInit(_base);
+			setBitrate(_bitrate);
+			enableInterrupts(CAN_INT_MASTER | CAN_INT_ERROR | CAN_INT_STATUS);
+
+			for (int i=0; i<32; i++)
+			{
+				CANMessageObject *o = getMessageObject(i);
+				o->id = 0;
+				o->mask = 0;
+				o->dlc = 8;
+				o->setRxIntEnabled(i<10);
+				o->setPartOfFIFO(i<9);
+				o->setUseIdFilter(i<10);
+				o->set(CAN::message_type_rx);
+			}
+
+			MAP_CANEnable(_base);
+		}
+
+		*/
+		uint32_t status = getControlRegister(); // also clears the interrupt
+		if (status & 0xA0) { // bus off, error warning level or error passive
+			bool s = _silent;
+			_silent = true;
+			MAP_CANDisable(_base);
+			delay_ms(10);
+
+			MAP_CANInit(_base);
+			setBitrate(_bitrate);
+			enableInterrupts(CAN_INT_MASTER | CAN_INT_ERROR | CAN_INT_STATUS);
+
+			for (int i=0; i<16; i++)
+			{
+				tCANMsgObject msgobj;
+				msgobj.ulMsgID = 0;
+				msgobj.ulMsgIDMask = 0;
+				msgobj.ulMsgLen = 8;
+				msgobj.pucMsgData = 0;
+				msgobj.ulFlags = MSG_OBJ_RX_INT_ENABLE | MSG_OBJ_USE_ID_FILTER | ((i<15)?MSG_OBJ_FIFO:0);
+				MAP_CANMessageSet(_base, i+1, &msgobj, MSG_OBJ_TYPE_RX);
+			}
+			MAP_CANEnable(_base);
+			delay_ms(10);
+			_silent = s;
+
+		}
+
 	}
 }
+
 
 void CANController::handleInterrupt()
 {
-	while (uint32_t mob_id = MAP_CANIntStatus(_base, CAN_INT_STS_CAUSE))
+	uint32_t cause = MAP_CANIntStatus(_base, CAN_INT_STS_CAUSE);
+	if (cause == CAN_INT_INTID_STATUS) // status interrupt. error occurred?
 	{
 		uint32_t status = getControlRegister(); // also clears the interrupt
-
-		if (mob_id == CAN_INT_INTID_STATUS) // status interrupt. error occurred?
-		{
-			// TODO: error handling
-		} else if ( (mob_id >= 1) && (mob_id <= 32) ) { // mailbox event
-			bool rxOk = (status & CAN_STATUS_RXOK) > 0;
-			bool txOk = (status & CAN_STATUS_TXOK) > 0;
-			_controllerTask->notifyInterrupt(_channel, rxOk, txOk, mob_id);
+	} else if ( (cause >= 1) && (cause <= 32) ) // mailbox event
+	{
+		//CANIntClear(_base, cause);
+		//_isrToThreadQueue.sendToBackFromISR(cause-1);
+		uint8_t mobId;
+		if (_freeSwMobs.receiveFromISR(&mobId)) {
+			tCANMsgObject *msgobj = &_swmobs[mobId];
+			MAP_CANMessageGet(_base, cause, msgobj, 1);
+			if (cause < 16+1) {
+				// RX MOB
+				_usedSwMobs.sendToBackFromISR(mobId);
+			}
+			else{
+				// TX MOB
+				_freeSwMobs.sendToBackFromISR(mobId);
+			}
 		}
-
+		else {
+			CANIntClear(_base, cause);
+		}
 	}
 }
+
+/*
+CANMessageObject* CANController::getMessageObject(uint8_t mob_id)
+{
+	if (mob_id<32)
+	{
+		return &_mobs[mob_id];
+	} else {
+		return 0;
+	}
+}
+*/
 
 void CANController::enableInterrupts(uint32_t interruptFlags)
 {
 	unsigned long INT;
 	switch (_channel) {
+#ifdef HAS_CAN_CHANNEL_0
 		case CAN::channel_0:
 			INT = INT_CAN0;
 			break;
+#endif
+#ifdef HAS_CAN_CHANNEL_1
 		case CAN::channel_1:
 			INT = INT_CAN1;
 			break;
+#endif
+#ifdef HAS_CAN_CHANNEL_2
 		case CAN::channel_2:
 			INT = INT_CAN2;
 			break;
+#endif
 		default:
 			while(1);
+			break;
 	}
 	MAP_CANIntEnable(_base, interruptFlags);
-	MAP_IntPrioritySet(INT, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(INT, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
 	IntEnable(INT);
 }
 
@@ -214,13 +331,12 @@ uint32_t CANController::getMobEnabledRegister()
 void CANController::enable()
 {
 	MAP_CANEnable(_base);
-	_controllerTask->startIfNotRunning();
-	_isEnabled = true;
+	run();
 }
 
 void CANController::disable()
 {
-	_isEnabled = false;
+	stop();
 	MAP_CANDisable(_base);
 }
 
@@ -241,28 +357,42 @@ CAN::error_counters_t CANController::getErrorCounters()
 	return result;
 }
 
+uint8_t CANController::findFreeSendingMOB()
+{
+	for (uint8_t i=0; i<=_timeToWaitForFreeMob; i++) {
+		uint32_t txPendingStatus = getTxRequestRegister();
+		for (uint8_t i=31; i>15; i--) {
+			if ( (txPendingStatus & (1<<i)) == 0 ) { // mailbox i is free?
+				return i;
+			}
+		}
+		if (_timeToWaitForFreeMob>0) {
+			delay_ms(1);
+		}
+	}
+	return 0;
+}
+
 bool CANController::sendMessage(CANMessage *msg)
 {
-	if (_silent) return true;
+	MutexGuard guard(&_sendMessageMutex);
 
-	uint8_t mob_num;
-	if (_availableSendingMOBs.receive(&mob_num)) {
+	if (_silent) return true;
+	uint8_t mob = findFreeSendingMOB();
+	if (mob>0) {
 
 		tCANMsgObject msgobj;
-		msgobj.ulMsgID     = msg->id;
+
+		if (msg->id>=0x800) {
+			msg->setExtendedId(true);
+		}
+
+		msgobj.ulMsgID = msg->id;
 		msgobj.ulMsgIDMask = 0;
-		msgobj.ulMsgLen    = msg->dlc;
-		msgobj.pucMsgData  = msg->data;
-
-		msgobj.ulFlags = MSG_OBJ_TX_INT_ENABLE;
-		if (msg->isExtendedId() || (msg->id>0x7FF)) {
-			msgobj.ulFlags |= MSG_OBJ_EXTENDED_ID;
-		}
-		if (msg->isRemoteFrame()) {
-			msgobj.ulFlags |= MSG_OBJ_REMOTE_FRAME;
-		}
-
-		MAP_CANMessageSet(_base, mob_num, &msgobj, MSG_OBJ_TYPE_TX);
+		msgobj.ulMsgLen = msg->dlc;
+		msgobj.pucMsgData = msg->data;
+		msgobj.ulFlags = msg->_flags;
+		MAP_CANMessageSet(_base, mob+1, &msgobj, MSG_OBJ_TYPE_TX);
 
 		return true;
 	} else {
@@ -274,7 +404,8 @@ bool CANController::sendMessage(CANMessage *msg)
 CANController *CANController::_controllers[3] = {0, 0, 0};
 CANController *CANController::get(CAN::channel_t channel)
 {
-	CriticalSection critical();
+	static Mutex _mutex;
+	MutexGuard guard(&_mutex);
 
 	if (!_controllers[channel])
 	{
@@ -309,6 +440,7 @@ CANController *CANController::get(CAN::channel_t channel)
 
 			default:
 				while(1);
+				break;
 		}
 		_controllers[channel] = new CANController(channel, periph, base);
 		CANIntRegister(base, handler);
@@ -317,19 +449,44 @@ CANController *CANController::get(CAN::channel_t channel)
 	return _controllers[channel];
 }
 
-void CANController::notifyObservers(CANMessage *canmsg)
+void CANController::notifyObservers(tCANMsgObject *obj)
 {
 	MutexGuard guard(&_observerMutex);
-	{
-		NoTaskSwitchSection noTaskSwitchSection();
-		for (ObserverList::Item *i=_observers.getFirstItem(); i!=0; i=i->getNext()) {
-			if (i->getData().matches(canmsg)) {
-				canmsg->incrementReferenceCounter();
-				i->getData().observer->notifyCANMessage(canmsg);
+
+	observer_list_t *list = _observers;
+	while (list != 0) {
+		for (int i=0; i<observer_list_length; i++) {
+			observer_list_entry_t *entry = &list->entries[i];
+			if (!entry->observer) continue;
+
+
+			if ( (obj->ulMsgID & entry->mask) == (entry->can_id & entry->mask) )
+			{
+				// match. notify the observer.
+				CANMessage *msg = _pool.getMessage();
+				if (msg) {
+					msg->_flags = obj->ulFlags & (MSG_OBJ_EXTENDED_ID | MSG_OBJ_REMOTE_FRAME);
+					msg->_receivingController = this;
+					msg->id = obj->ulMsgID;
+					msg->dlc = obj->ulMsgLen;
+					memcpy(msg->data, obj->pucMsgData, sizeof(msg->data));
+
+
+					if (!entry->observer->notifyCANMessage(msg)) {
+						_pool.returnMessage(msg);
+					}
+				}
 			}
 		}
+		list = list->next;
 	}
 
+}
+
+
+void CANController::returnMessageToPool(CANMessage *obj)
+{
+	_pool.returnMessage(obj);
 }
 
 bool CANController::registerObserver(CANObserver *observer)
@@ -342,18 +499,34 @@ bool CANController::registerObserver(CANObserver *observer, int32_t can_id, uint
 	MutexGuard guard(&_observerMutex);
 
 	// don't register if same observer on same object is already installed
-	for (ObserverList::Item *i=_observers.getFirstItem(); i!=0; i=i->getNext()) {
-		if (i->getData().matches(can_id, mask, observer)) {
-			return true; // already registered
+	observer_list_t *list = _observers;
+	while (list != 0) {
+		for (int i=0; i<observer_list_length; i++) {
+			if ( (list->entries[i].observer == observer)
+			  && (list->entries[i].can_id == can_id)
+			  && (list->entries[i].mask == mask)
+			) {
+				return true; // already registered
+			}
 		}
+		list = list->next;
 	}
 
-	ObserverListEntry e;
-	e.can_id = can_id;
-	e.mask = mask;
-	e.observer = observer;
-	_observers.add(e);
-
+	list = _observers;
+	while (list != 0) {
+		for (int i=0; i<observer_list_length; i++) {
+			if (list->entries[i].observer==0) { // found an empty slot
+				list->entries[i].observer = observer;
+				list->entries[i].can_id = can_id;
+				list->entries[i].mask = mask;
+				return true;
+			}
+		}
+		if (list->next==0) {
+			list->next = createObserverListFragment();
+		}
+		list = list->next;
+	}
 	return false;
 }
 
@@ -362,26 +535,39 @@ int CANController::unregisterObserver(CANObserver *observer)
 	MutexGuard guard(&_observerMutex);
 
 	int result = 0;
-	int i;
-	bool finished = false;
 
-	while (!finished) {
-		i = 0;
-		finished = true;
-		for (ObserverList::Item *item=_observers.getFirstItem(); item!=0; item=item->getNext()) {
-			if (item->getData().observer==observer) {
-				_observers.removeAt(i);
+	for (observer_list_t *list=_observers; list!=0; list=list->next) {
+		for (int i=0; i<observer_list_length; i++) {
+			if (list->entries[i].observer==observer) {
+				list->entries[i].observer = 0;
 				result++;
-				finished = false;
-				break;
 			}
-			i++;
 		}
 	}
 
 	return result;
 }
 
+int CANController::unregisterObserver(CANObserver *observer, int32_t can_id, uint32_t mask)
+{
+	MutexGuard guard(&_observerMutex);
+
+	int result = 0;
+	for (observer_list_t *list=_observers; list!=0; list=list->next) {
+		for (int i=0; i<observer_list_length; i++) {
+			if (
+					(list->entries[i].observer==observer)
+				&& ((list->entries[i].can_id & mask) == (can_id & mask))
+				&& ((list->entries[i].mask) == mask)
+			) {
+				list->entries[i].observer = 0;
+				result++;
+			}
+		}
+	}
+
+	return result;
+}
 
 void CANController::registerCyclicMessage(CANCyclicMessage *cmsg)
 {
@@ -416,40 +602,37 @@ void CANController::unregisterCyclicMessage(CANMessage *msg)
 
 uint32_t CANController::sendCyclicCANMessages()
 {
-	uint32_t minTimeToWait = 0xFFFFFFFF;
-	if (!_isEnabled) { return minTimeToWait; }
-
 	_cyclicMessages.lock();
-	static uint32_t lastTickCount = 0;
-	uint32_t now = Task::getTime();
 
-	for (; lastTickCount <= now; lastTickCount++)
+	uint32_t now = getTime();
+	uint32_t timestamp_next_call = now + 1000;
+
+	for (auto *list = _cyclicMessages._firstFragment; list!=0; list = list->next)
 	{
-		for (auto *list = _cyclicMessages._firstFragment; list!=0; list = list->next)
-		{
-			for (int i=0; i<_cyclicMessages._fragmentSize; i++) {
-				CANCyclicMessage *item = list->items[i];
-				if (item!=0) {
+		for (int i=0; i<_cyclicMessages._fragmentSize; i++) {
+			CANCyclicMessage *item = list->items[i];
+			if (item!=0) {
+				if (!item->isEnabled()) continue;
 
-					if (item->shouldBeSentAt(lastTickCount)) {
-						item->send(this);
-					}
-
-					if (lastTickCount==now) { // last iteration
-						uint32_t t = item->timeTillNextSend(now);
-						if (t < minTimeToWait) {
-							minTimeToWait = t;
-						}
-					}
-
+				if (item->_timestamp_next_send <= now) {
+					item->send(this);
 				}
-			}
 
+				while (item->_timestamp_next_send <= now) {
+					item->_timestamp_next_send += item->_interval;
+				}
+
+				if (timestamp_next_call > item->_timestamp_next_send) {
+					timestamp_next_call = item->_timestamp_next_send;
+				}
+
+			}
 		}
+
 	}
 
 	_cyclicMessages.unlock();
-	return minTimeToWait;
+	return timestamp_next_call - now;
 }
 
 bool CANController::sendMessage(uint32_t id)
@@ -555,14 +738,20 @@ bool CANController::sendMessage(uint32_t id, uint8_t b1, uint8_t b2, uint8_t b3,
 	return sendMessage(&msg);
 }
 
-bool CANController::sendMessage(uint32_t id, uint8_t dlc, void const *ptr)
+
+uint32_t CANController::getTimeSinceLastReceivedMessage()
 {
-	uint8_t *data = (uint8_t *) ptr;
+	return getTime() - _lastMessageReceivedTimestamp;
+}
+
+bool CANController::sendMessage(uint32_t id, uint8_t dlc, const void* const ptr)
+{
+	//uint8_t *data = (uint8_t *) ptr;
 
 	if (dlc > 8) dlc = 8;
 	CANMessage msg(id, dlc);
 	if (dlc > 0) {
-		memcpy(msg.data, data, dlc);
+		memcpy(msg.data, ptr, dlc);
 	}
 	return sendMessage(&msg);
 }
@@ -572,8 +761,9 @@ void CANController::setSilent(bool beSilent)
 	_silent = beSilent;
 }
 
-uint32_t CANController::getTimeSinceLastReceivedMessage()
+void CANController::setTimeToWaitForFreeMob(uint32_t ms_to_wait)
 {
-	return Task::getTime() - _lastMessageReceivedTimestamp;
+	_timeToWaitForFreeMob = ms_to_wait;
 }
+
 

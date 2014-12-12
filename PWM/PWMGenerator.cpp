@@ -23,15 +23,17 @@
 #include "PWMGenerator.h"
 #include "PWMChannel.h"
 
+
+#ifdef HAS_PWM_GENERATORS
+
 #include <openstella/OS/Mutex.h>
 
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/driverlib/sysctl.h>
 #include <StellarisWare/driverlib/pwm.h>
-#include "../OS/CriticalSection.h"
 
-PWMGenerator* PWMGenerator::_generators[3] = {0,0,0};
+PWMGenerator* PWMGenerator::_generators[4] = {0,0,0,0};
 
 PWMGenerator::PWMGenerator(generator_num_t generator_num)
 	: _num(generator_num), _periph(SYSCTL_PERIPH_PWM), _base(PWM_BASE)
@@ -52,13 +54,20 @@ PWMGenerator::PWMGenerator(generator_num_t generator_num)
 			_channels[0] = new PWMChannel(this, PWMChannel::channel_4);
 			_channels[1] = new PWMChannel(this, PWMChannel::channel_5);
 			break;
+#ifdef HAS_PWM_GENERATOR3
+		case generator_3:
+			_gen = PWM_GEN_3;
+			_channels[0] = new PWMChannel(this, PWMChannel::channel_6);
+			_channels[1] = new PWMChannel(this, PWMChannel::channel_7);
+			break;
+#endif
 	}
 }
 
 PWMGenerator *PWMGenerator::get(generator_num_t generator_num)
 {
-	CriticalSection critical();
-
+	static Mutex mutex;
+	MutexGuard guard(&mutex);
 	if (_generators[generator_num]==0)
 	{
 		_generators[generator_num] = new PWMGenerator(generator_num);
@@ -111,5 +120,6 @@ PWMChannel *PWMGenerator::getChannel(channel_t channel)
 }
 
 
+#endif /* HAS_PWM_GENERATORS */
 
 

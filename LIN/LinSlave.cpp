@@ -23,8 +23,11 @@
 
 #include "LinSlave.h"
 
-LinSlave::LinSlave(UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin)
-: Task("LIN", 250), _lin(uart), _baudrate(baudrate), _rxPin(rxPin), _txPin(txPin)
+LinSlave::LinSlave(
+		UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin,
+		char *taskName, uint16_t taskStackSize, uint8_t taskPriority)
+  : Task(taskName, taskStackSize, taskPriority),
+    _lin(uart), _baudrate(baudrate), _rxPin(rxPin), _txPin(txPin)
 {
 }
 
@@ -42,13 +45,14 @@ uint8_t LinSlave::unprotectIdentifier(uint8_t id) {
 void LinSlave::sendFrame(uint8_t id, void *vdata, uint8_t len)
 {
 	uint8_t *data = (uint8_t*)vdata;
-
 	_lin->write((char*)data, len);
+
 	uint32_t checksum = protectIdentifier(id);
 	for (uint8_t i=0; i<len; i++) {
 		checksum += data[i];
 	}
 	checksum %= 0xFF;
+
 	_lin->putChar(~checksum);
 }
 
@@ -58,23 +62,6 @@ bool LinSlave::receiveFrame(uint8_t id, void *vdata, uint8_t len)
 
 	uint32_t checksum = protectIdentifier(id);
 	uint32_t timeout = getTime() + 3 + (2*11*1000)/_baudrate;
-
-	while (1) {
-		if (getTime() > timeout) {
-			return false;
-		}
-		int16_t read = _lin->getCharNonBlocking();
-		if (read==0x55) break;
-		delay_ticks(1);
-	}
-	while (1) {
-		if (getTime() > timeout) {
-			return false;
-		}
-		int16_t read = _lin->getCharNonBlocking();
-		if (read>=0) break;
-		delay_ticks(1);
-	}
 
 	uint8_t recv_count = 0;
 	timeout = getTime() + 5 + (len*10*1000)/_baudrate;

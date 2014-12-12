@@ -23,16 +23,24 @@
 #ifndef PWMGENERATOR_H_
 #define PWMGENERATOR_H_
 
+
 #include <stdint.h>
 #include "PWMChannel.h"
+
+#ifdef HAS_PWM_GENERATORS
+
+class PWMChannel;
 
 class PWMGenerator {
 public:
 	typedef enum {
 		generator_0,
 		generator_1,
-		generator_2
-	} generator_num_t;
+		generator_2,
+#ifdef HAS_PWM_GENERATOR3
+		generator_3
+#endif
+		} generator_num_t;
 
 	typedef enum {
 		div_1  = 0x00000000,
@@ -64,7 +72,7 @@ public:
 
 private:
 	PWMGenerator(generator_num_t generator_num);
-	static PWMGenerator* _generators[3];
+	static PWMGenerator* _generators[4];
 	generator_num_t _num;
 	uint32_t _periph;
 	uint32_t _base;
@@ -76,5 +84,7 @@ public:
 	void enable();
 	PWMChannel *getChannel(channel_t channel);
 };
+
+#endif /* HAS_PWM_GENERATORS */
 
 #endif /* PWMGENERATOR_H_ */

@@ -36,6 +36,8 @@ void taskfunctorwrapper(void* parm);
 class TaskFunctorBase {
 public:
 	virtual void call()=0;
+	virtual ~TaskFunctorBase() {}
+
 };
 
 template <class TClass> class TaskFunctor : public TaskFunctorBase {
@@ -48,6 +50,11 @@ template <class TClass> class TaskFunctor : public TaskFunctorBase {
 			_calledMethod(calledMethod)
 		{
 		}
+
+		virtual ~TaskFunctor()
+		{
+		}
+
 		virtual void call() {
 			(*_calledObject.*_calledMethod)();
 		}

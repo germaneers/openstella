@@ -14,7 +14,6 @@
 #include <StellarisWare/driverlib/adc.h>
 
 #include "ADCSequencer.h"
-#include "../OS/CriticalSection.h"
 
 ADCModule *ADCModule::_modules[2] = { 0,0 };
 
@@ -42,7 +41,8 @@ ADCModule::ADCModule(ADC::module_num_t module)
 
 ADCModule* ADCModule::get(ADC::module_num_t module)
 {
-	CriticalSection critical();
+	static Mutex _mutex;
+	MutexGuard guard(&_mutex);
 
 	if (!_modules[module]) {
 		_modules[module] = new ADCModule(module);

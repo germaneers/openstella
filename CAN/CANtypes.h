@@ -27,18 +27,40 @@
 
 #include <stdint.h>
 
+#ifdef PART_LM3S9B81
+  #define HAS_CAN_CHANNEL_0
+  #define HAS_CAN_CHANNEL_1
+  #define HAS_CAN_CHANNEL_2
+#endif
+#if (defined PART_LM3S9B96) || (defined PART_LM3S9D96) || (defined PART_LM3S9D92)
+  #define HAS_CAN_CHANNEL_0
+  #define HAS_CAN_CHANNEL_1
+#endif
+#ifdef PART_LM3S5G51
+  #define HAS_CAN_CHANNEL_0
+  #define HAS_CAN_CHANNEL_1
+#endif
+
+
 namespace CAN {
 
 	typedef enum {
+#ifdef HAS_CAN_CHANNEL_0
 		channel_0,
+#endif
+#ifdef HAS_CAN_CHANNEL_1
 		channel_1,
+#endif
+#ifdef HAS_CAN_CHANNEL_2
 		channel_2,
+#endif
 		channel_none
 	} channel_t;
 
 	typedef enum {
 		bitrate_100kBit  =  100000,
 		bitrate_125kBit  =  125000,
+		bitrate_250kBit  =  250000,
 		bitrate_500kBit  =  500000,
 		bitrate_1000kBit = 1000000
 	} bitrate_t;

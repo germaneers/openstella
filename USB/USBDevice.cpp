@@ -59,6 +59,7 @@ bool USBDevice::waitForSendIdle(uint32_t timeout_ms)
 		if (_state==state_idle) { return true; }
 		now = Task::getTime();
 		if (now > timeout) { return false; }
+		Task::yield();
 	}
 }
 
@@ -94,7 +95,7 @@ unsigned long USBDevice::DeviceHandler(void *pvCBData, unsigned long  ulEvent, u
 
 void USBDevice::enable()
 {
-	_controller->setMode(USBController::mode_device);
+	_controller->setMode(USBController::mode_force_device);
 }
 
 

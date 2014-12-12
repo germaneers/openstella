@@ -29,8 +29,8 @@
 class USBHIDDeviceDescriptor : public USBDefaultDeviceDescriptor {
 public:
 	USBHIDDeviceDescriptor();
-	virtual void setHIDInterfaceString(const char *s) { setDescriptorString(4, makeDescriptorString(s)); }
-	virtual void setConfigString(const char *s) { setDescriptorString(5, makeDescriptorString(s)); }
+	virtual void setHIDInterfaceString(const char *s) { setDescriptorString(4, s); }
+	virtual void setConfigString(const char *s) { setDescriptorString(5, s); }
 };
 
 #endif /* USBHIDDEVICEDESCRIPTOR_H_ */

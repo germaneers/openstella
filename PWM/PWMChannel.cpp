@@ -21,7 +21,8 @@
  */
 
 #include "PWMChannel.h"
-#include "PWMGenerator.h"
+
+#ifdef HAS_PWM_GENERATORS
 
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_memmap.h>
@@ -62,7 +63,19 @@ PWMChannel::PWMChannel(PWMGenerator *generator, channel_t channel)
 			_out_bit = PWM_OUT_5_BIT;
 			_pin = GPIO::E[7];
 			break;
-	}
+#ifdef HAS_PWM_GENERATOR3
+		case channel_6:
+			_out = PWM_OUT_6;
+			_out_bit = PWM_OUT_6_BIT;
+			_pin = GPIO::C[4];
+			break;
+		case channel_7:
+			_out = PWM_OUT_7;
+			_out_bit = PWM_OUT_7_BIT;
+			_pin = GPIO::C[6];
+			break;
+#endif
+		}
 }
 
 void PWMChannel::setOutputState(bool enable)
@@ -95,7 +108,15 @@ void PWMChannel::configurePin(GPIOPin pin)
 		case channel_5:
 			_pin.mapAsPWM5();
 			break;
-	}
+#ifdef HAS_PWM_GENERATOR3
+		case channel_6:
+			_pin.mapAsPWM6();
+			break;
+		case channel_7:
+			_pin.mapAsPWM7();
+			break;
+#endif
+		}
 }
 
 void PWMChannel::setPulseWidth(uint16_t pulseWidth)
@@ -110,3 +131,4 @@ PWMGenerator *PWMChannel::getGenerator()
 }
 
 
+#endif /* HAS_PWM_GENERATORS */

@@ -52,12 +52,10 @@ private:
 	uint16_t _interval;
 	uint16_t _offset;
 	bool _enabled;
-
-	bool shouldBeSentAt(uint32_t timestamp);
-	uint32_t timeTillNextSend(uint32_t timestamp);
-	void send(CANController *can);
+	uint32_t _timestamp_next_send;
 
 public:
+	void send(CANController *can);
 	CANCyclicMessage(CANMessage *msg, uint16_t interval, uint16_t offset=0);
 
 	/**
@@ -75,13 +73,15 @@ public:
 	 * @param interval interval the cyclic message is sent in (in ms)
 	 * @param offset timing offset of the cyclic message (in ms)
 	 */
-	CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset=0);
+	CANCyclicMessage(CANController *can, uint32_t id, uint8_t dlc, uint16_t interval, uint16_t offset=0, bool isEnabled = true);
 
 	/// (temporarily) disable transmission of the message.
 	void disable() { _enabled = false; };
 
 	/// (re-)enable transmission of the message. sending is enabled by default.
 	void enable()  { _enabled = true; };
+
+	bool isEnabled() { return _enabled; }
 
 	/// set the interval
 	void setInterval(uint16_t interval);
@@ -114,6 +114,9 @@ public:
 
 	/// assign data[index] of the transmitted message to value
 	void setDataByte(uint8_t index, uint8_t value);
+
+	/// set bit in data[index]
+	void setDataBit(uint8_t byteIndex, uint8_t bitIndex, bool state);
 
 	/// return data[index] of the transmitted message
 	uint8_t getDataByte(uint8_t index);

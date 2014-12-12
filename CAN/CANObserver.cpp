@@ -34,9 +34,19 @@ void CANObserver::listenCAN(CAN::channel_t channel)
 	CANController::get(channel)->registerObserver(this);
 }
 
+void CANObserver::listenCAN(CANController *can)
+{
+	can->registerObserver(this);
+}
+
 void CANObserver::listenCANId(CAN::channel_t channel, int32_t id, uint32_t mask)
 {
 	CANController::get(channel)->registerObserver(this, id, mask);
+}
+
+void CANObserver::listenCANId(CANController *can, int32_t id, uint32_t mask)
+{
+	can->registerObserver(this, id, mask);
 }
 
 bool CANObserver::isCANMessageAvailable()
@@ -49,9 +59,7 @@ bool CANObserver::getCANMessage(CANMessage *msg, uint32_t timeout)
 	CANMessage *obj;
 	if (_queue.receive(&obj, timeout)) {
 		msg->assign(obj);
-		if (obj->decrementReferenceCounter()) {
-			delete(obj);
-		}
+		obj->returnMessageToPool();
 		return true;
 	} else {
 		return false;
@@ -62,3 +70,25 @@ bool CANObserver::notifyCANMessage(CANMessage *obj)
 {
 	return _queue.sendToBack(obj, 0);
 }
+
+void CANObserver::removeListenCAN(CAN::channel_t channel)
+{
+	CANController::get(channel)->unregisterObserver(this);
+}
+
+void CANObserver::removeListenCAN(CANController *can)
+{
+	can->unregisterObserver(this);
+}
+
+void CANObserver::removeListenCANId(CAN::channel_t channel, int32_t id, uint32_t mask)
+{
+	CANController::get(channel)->unregisterObserver(this, id, mask);
+}
+
+void CANObserver::removeListenCANId(CANController *can, int32_t id, uint32_t mask)
+{
+	can->unregisterObserver(this, id, mask);
+}
+
+

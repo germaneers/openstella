@@ -161,6 +161,8 @@ class Timer
 		uint32_t getInterruptStatus(bool returnMaskedStatus=true);
 		void setInterruptCallback(VoidFunctorBase *callback);
 
+		void setPrescaler(half_t half, uint8_t clockticks);
+
 };
 
 

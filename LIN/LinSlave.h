@@ -43,7 +43,7 @@ protected:
 	virtual void onIdReceived(uint8_t id) {};
 	virtual void execute(void);
 public:
-	LinSlave(UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin);
+	LinSlave(UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin, char *taskName="LIN", uint16_t taskStackSize=250, uint8_t taskPriority=1);
 	void setup();
 };
 

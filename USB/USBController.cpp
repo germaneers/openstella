@@ -22,8 +22,7 @@
 
 
 #include "USBController.h"
-#include "../OS/CriticalSection.h"
-
+#include "../OS/Mutex.h"
 #include <StellarisWare/inc/hw_memmap.h>
 #include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/sysctl.h>
@@ -39,7 +38,8 @@ USBController* USBController::_instances[] = { 0 };
 
 USBController *USBController::get(controller_num_t num)
 {
-	CriticalSection critical();
+	static Mutex lock;
+	MutexGuard guard(&lock);
 
 	if (_instances[num]==0) {
 		_instances[num] = new USBController(num);
@@ -62,7 +62,7 @@ USBController::USBController(controller_num_t num) :
 			while(1);
 	}
 	MAP_SysCtlPeripheralEnable(_periph);
-	MAP_IntPrioritySet(INT_USB0, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(INT_USB0, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
 }
 
 void USBController::setMode(mode_t mode, tUSBModeCallback modeHandlerCallback) {

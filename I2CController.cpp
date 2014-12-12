@@ -34,7 +34,7 @@
 #include <StellarisWare/driverlib/i2c.h>
 #include <StellarisWare/driverlib/interrupt.h>
 #include <openstella/OS/Task.h>
-#include "OS/CriticalSection.h"
+#include <openstella/OS/Mutex.h>
 
 void I2C0IntHandler(void) {
 	I2CController::_controllers[0]->handleInterrupt();
@@ -46,6 +46,7 @@ void I2C1IntHandler(void) {
 
 I2CController::I2CController(controller_t controller, uint32_t periph, uint32_t base)
  : _controller(controller), _periph(periph), _base(base),
+   _defaultTimeout(0xFFFFFFFF),
    _sda(GPIO::A[0]), _scl(GPIO::A[0]),
    _lock(),
    _interruptSemaphore(),
@@ -62,7 +63,8 @@ void I2CController::handleInterrupt()
 I2CController *I2CController::_controllers[controller_count];
 I2CController *I2CController::get(controller_t controller)
 {
-	CriticalSection critical();
+	static Mutex lock;
+	MutexGuard guard(&lock);
 
 	if (!_controllers[controller])
 	{
@@ -83,11 +85,12 @@ I2CController *I2CController::get(controller_t controller)
 	return _controllers[controller];
 }
 
-void I2CController::setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts)
+void I2CController::setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts, uint32_t defaultTimeout)
 {
 	RecursiveMutexGuard guard(&_lock);
 	_sda = sda;
 	_scl = scl;
+	_defaultTimeout = defaultTimeout;
 
 	MAP_SysCtlPeripheralEnable(_periph);
 	SysCtlPeripheralReset(_periph);
@@ -152,8 +155,10 @@ unsigned long I2CController::waitFinish(uint32_t timeout_ms)
 	}
 }
 
-unsigned long I2CController::read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::read(uint8_t addr, void *ptr, int count, bool sendStartCondition, bool sendStopCondition)
 {
+	uint8_t *buf = (uint8_t *) ptr;
+
 	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
@@ -169,7 +174,7 @@ unsigned long I2CController::read(uint8_t addr, uint8_t *buf, int count, bool se
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = waitFinish();
+		ret = waitFinish(_defaultTimeout);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
@@ -203,7 +208,7 @@ unsigned long I2CController::read8(uint8_t addr, uint8_t *data, bool sendStartCo
 			return ret;
 		}
 	}
-	ret = waitFinish();
+	ret = waitFinish(_defaultTimeout);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -216,17 +221,21 @@ unsigned long I2CController::read8(uint8_t addr, uint8_t *data, bool sendStartCo
 	return 0;
 }
 
-unsigned long I2CController::write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition, bool sendStopCondition)
+unsigned long I2CController::write(uint8_t addr, const void *ptr, int count, bool sendStartCondition, bool sendStopCondition)
 {
+	const uint8_t *buf = (const uint8_t *) ptr;
+
 	RecursiveMutexGuard guard(&_lock);
 	unsigned long ret;
 
 	if (count<1) return 0;
-	write8(addr, buf[0], sendStartCondition, (count==1) && sendStopCondition);
+
+	ret = write8(addr, buf[0], sendStartCondition, (count==1) && sendStopCondition);
+	if (ret != I2C_MASTER_ERR_NONE) { return ret; }
+
 	ret = I2CMasterErr(_base);
-	if (ret != I2C_MASTER_ERR_NONE) {
-		return ret;
-	}
+	if (ret != I2C_MASTER_ERR_NONE) { return ret; }
+
 	for(int i=1; i<count; i++) {
 		I2CMasterDataPut(_base, buf[i]);
 		I2CMasterControl(_base, (sendStopCondition && (i == count-1)) ? I2C_MASTER_CMD_BURST_SEND_FINISH : I2C_MASTER_CMD_BURST_SEND_CONT);
@@ -234,7 +243,7 @@ unsigned long I2CController::write(uint8_t addr, uint8_t *buf, int count, bool s
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
-		ret = waitFinish();
+		ret = waitFinish(_defaultTimeout);
 		if (ret != I2C_MASTER_ERR_NONE) {
 			return ret;
 		}
@@ -264,7 +273,7 @@ unsigned long I2CController::write8(uint8_t addr, uint8_t data, bool sendStartCo
 		}
 
 	}
-	ret = waitFinish();
+	ret = waitFinish(_defaultTimeout);
 	if (ret != I2C_MASTER_ERR_NONE) {
 		return ret;
 	}
@@ -641,7 +650,7 @@ void I2CController::enableInterrupts(bool enableTimeoutInterrupt, bool enableDat
 	if (enableDataInterrupt) flags |= I2C_MASTER_INT_DATA;
 
 	_interruptSemaphore.take(0); // reset pending interrupt mutex
-	MAP_IntPrioritySet(INT, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(INT, configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
 	I2CMasterIntEnableEx(_base, flags);
 	IntEnable(INT);
 	_interruptsEnabled = true;

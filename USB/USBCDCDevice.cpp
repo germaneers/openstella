@@ -191,3 +191,33 @@ bool USBCDCDevice::putChar(char ch, uint32_t timeout)
 {
 	return writeBuffer((uint8_t*)&ch, 1, timeout);
 }
+
+void USBCDCDevice::setDeviceId(uint16_t vid, uint16_t pid)
+{
+	getUSBCDCDeviceDescriptor()->setDeviceId(vid, pid);
+}
+
+void USBCDCDevice::setManufacturerString(const char *s)
+{
+	getUSBCDCDeviceDescriptor()->setDescriptorString(1, s);
+}
+
+void USBCDCDevice::setProductString(const char *s)
+{
+	getUSBCDCDeviceDescriptor()->setDescriptorString(2, s);
+}
+
+void USBCDCDevice::setSerialNumberString(const char *s)
+{
+	getUSBCDCDeviceDescriptor()->setDescriptorString(3, s);
+}
+
+void USBCDCDevice::setControlInterfaceDescString(const char *s)
+{
+	getUSBCDCDeviceDescriptor()->setDescriptorString(4, s);
+}
+
+void USBCDCDevice::setConfigDescString(const char *s)
+{
+	getUSBCDCDeviceDescriptor()->setDescriptorString(5, s);
+}

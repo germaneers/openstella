@@ -29,6 +29,7 @@
 #define GPIO_H_
 
 #include <stdint.h>
+#include <freertos/include/FreeRTOSConfig.h>
 
 class GPIOPin;
 class GPIOPort;
@@ -128,7 +129,10 @@ class GPIOPin {
 	public:
 		static GPIOPin invalid;
 		GPIOPin();
-		bool isValid() { return _port_pin!=0xFF; }
+		bool isValid();
+
+		static bool unlockNmiPin();
+		static void lockNmiPin();
 
 		/// enable GPIO port peripheral
 		/**
@@ -220,6 +224,10 @@ class GPIOPin {
 		/** @param b set pin to high if b is true, otherwise low */
 		void set(bool b);
 
+		/// toggle pin state
+		/** set the pad state to low if it was high or vice versa (in output mode) */
+		void toggle();
+
 		void enableDMATrigger();
 		void disableDMATrigger();
 		void enableADCTrigger();
@@ -236,8 +244,8 @@ class GPIOPin {
 		GPIOPort *getPort();
 		uint8_t  getPins();
 
-		bool operator==(const GPIOPin &other) const { return other._port_pin == _port_pin; }
-		bool operator!=(const GPIOPin &other) const { return other._port_pin != _port_pin; }
+		bool operator==(const GPIOPin &other) const;
+		bool operator!=(const GPIOPin &other) const;
 
 	public:
 		void mapAsC0O();
@@ -293,10 +301,6 @@ class GPIOPin {
 		void mapAsI2C0SDA();
 		void mapAsI2C1SCL();
 		void mapAsI2C1SDA();
-		void mapAsI2C2SCL();
-		void mapAsI2C2SDA();
-		void mapAsI2C3SCL();
-		void mapAsI2C3SDA();
 		void mapAsI2S0RXMCLK();
 		void mapAsI2S0RXSCK();
 		void mapAsI2S0RXSD();
@@ -316,14 +320,6 @@ class GPIOPin {
 		void mapAsSSI1FSS();
 		void mapAsSSI1RX();
 		void mapAsSSI1TX();
-		void mapAsSSI2CLK();
-		void mapAsSSI2FSS();
-		void mapAsSSI2RX();
-		void mapAsSSI2TX();
-		void mapAsSSI3CLK();
-		void mapAsSSI3FSS();
-		void mapAsSSI3RX();
-		void mapAsSSI3TX();
 		void mapAsSWCLK();
 		void mapAsSWDIO();
 		void mapAsSWO();
@@ -343,16 +339,6 @@ class GPIOPin {
 		void mapAsU1TX();
 		void mapAsU2RX();
 		void mapAsU2TX();
-		void mapAsU3RX();
-		void mapAsU3TX();
-		void mapAsU4RX();
-		void mapAsU4TX();
-		void mapAsU5RX();
-		void mapAsU5TX();
-		void mapAsU6RX();
-		void mapAsU6TX();
-		void mapAsU7RX();
-		void mapAsU7TX();
 		void mapAsUSB0EPEN();
 		void mapAsUSB0PFLT();
 		void mapAsPWM0();
@@ -373,37 +359,6 @@ class GPIOPin {
 		void mapAsFAULT3();
 		void mapAsIDX0();
 		void mapAsIDX1();
-
-		void mapAsTRCLK();
-		void mapAsTRD0();
-		void mapAsTRD1();
-		void mapAsTRD2();
-
-		void mapAsWT0CCP0();
-		void mapAsWT0CCP1();
-		void mapAsWT1CCP0();
-		void mapAsWT1CCP1();
-		void mapAsWT2CCP0();
-		void mapAsWT2CCP1();
-		void mapAsWT3CCP0();
-		void mapAsWT3CCP1();
-		void mapAsWT4CCP0();
-		void mapAsWT4CCP1();
-		void mapAsWT5CCP0();
-		void mapAsWT5CCP1();
-
-		void mapAsT0CCP0();
-		void mapAsT0CCP1();
-		void mapAsT1CCP0();
-		void mapAsT1CCP1();
-		void mapAsT2CCP0();
-		void mapAsT2CCP1();
-		void mapAsT3CCP0();
-		void mapAsT3CCP1();
-		void mapAsT4CCP0();
-		void mapAsT4CCP1();
-		void mapAsT5CCP0();
-		void mapAsT5CCP1();
 };
 
 class GPIOPort {
@@ -440,7 +395,7 @@ class GPIOPort {
 		void enableADCTriggerPins(uint8_t pins);
 		void disableADCTriggerPins(uint8_t pins);
 
-		void registerInterruptHandler(void (*intHandler)(void));
+		void registerInterruptHandler(void (*intHandler)(void), uint8_t priority = configDEFAULT_SYSCALL_INTERRUPT_PRIORITY);
 		void unregisterInterruptHandler();
 		void disableInterrupt(uint8_t pins);
 		void setInterruptType(uint8_t pins, GPIOPin::interruptType_t intType);
@@ -449,10 +404,10 @@ class GPIOPort {
 		void clearInterruptPins(uint8_t pins);
 
 
-		GPIOPin getPin(uint8_t pin)  { return GPIOPin( _portNumber, pin ); }
-		GPIOPin operator[] (uint8_t pin) { return GPIOPin( _portNumber, pin ); }
+		GPIOPin getPin(uint8_t pin);
+		GPIOPin operator[] (uint8_t pin);
 
-		uint32_t getBase() { return _base; }
+		uint32_t getBase();
 };
 
 #endif /* GPIO_H_ */

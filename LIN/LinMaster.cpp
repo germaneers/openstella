@@ -56,3 +56,51 @@ void LinMaster::sendIdAndDelay(uint8_t id, uint32_t delay)
 	int32_t wait = delay - (getTime()-start);
 	if (wait>0) delay_ms(wait);
 }
+
+bool LinMaster::receiveFrame(uint8_t id, void *vdata, uint8_t len)
+{
+	uint8_t *data = (uint8_t*)vdata;
+
+	uint32_t checksum = protectIdentifier(id);
+	uint32_t timeout = getTime() + 3 + (2*11*1000)/_baudrate;
+
+	while (1) { // wait for sync byte
+		if (getTime() > timeout) {
+			return false;
+		}
+		int16_t read = _lin->getCharNonBlocking();
+		if (read==0x55) break;
+		delay_ticks(1);
+	}
+	while (1) { // read id [ throw away, it's from us anyways ]
+		if (getTime() > timeout) {
+			return false;
+		}
+		int16_t read = _lin->getCharNonBlocking();
+		if (read>=0) break;
+		delay_ticks(1);
+	}
+
+	uint8_t recv_count = 0;
+	timeout = getTime() + 5 + (len*10*1000)/_baudrate;
+	while (recv_count <= len) {
+		if (getTime() > timeout) {
+			return false;
+		}
+
+		int16_t read;
+		while ((read = _lin->getCharNonBlocking()) >= 0 ) {
+			uint8_t ch = (uint8_t) read & 0xFF;
+			if (recv_count==len) {
+				checksum %= 0xFF;
+				return ((uint8_t)(~checksum)) == ch;
+			} else {
+				checksum += ch;
+				data[recv_count++] = ch;
+			}
+		}
+		delay_ticks(1);
+
+	}
+	return false;
+}

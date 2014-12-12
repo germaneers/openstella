@@ -1,9 +1,9 @@
 /*
  * I2CController.h
  *
- * Copyright 2012 Germaneers GmbH
+ * Copyright 2012-2013 Germaneers GmbH
  * Copyright 2012 Hubert Denkmair (hubert.denkmair@germaneers.com)
- * Copyright 2012 Stefan Rupp (stefan.rupp@germaneers.com)
+ * Copyright 2012-2013 Stefan Rupp (stefan.rupp@germaneers.com)
  *
  * This file is part of libopenstella.
  *
@@ -29,32 +29,17 @@
 #include "GPIO.h"
 #include "OS/RecursiveMutex.h"
 #include "OS/Semaphore.h"
+#include "AbstractI2cController.h"
 
-class I2CController {
+class I2CController : public AbstractI2cController {
 	friend void I2C0IntHandler();
 	friend void I2C1IntHandler();
-
-public:
-	enum controller_t {
-		controller_0,
-		controller_1,
-		controller_count
-	};
-
-	enum speed_t {
-		speed_100kBit,
-		speed_400kBit
-	};
-
-	enum byteorder_t {
-		byteorder_big_endian,
-		byteorder_little_endian
-	};
 
 private:
 	controller_t _controller;
 	uint32_t _periph;
 	uint32_t _base;
+	uint32_t _defaultTimeout;
 
 	GPIOPin _sda;
 	GPIOPin _scl;
@@ -68,7 +53,7 @@ private:
 	I2CController(controller_t controller, uint32_t periph, uint32_t base);
 
 	void handleInterrupt();
-	inline unsigned long waitFinish(uint32_t timeout_ms=0xFFFFFFFF);
+	inline unsigned long waitFinish(uint32_t timeout_ms);
 
 
 public:
@@ -76,15 +61,15 @@ public:
 
 	static I2CController* get(controller_t controller);
 
-	void setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts = true);
+	void setup(GPIOPin sda, GPIOPin scl, speed_t speed, bool doEnableInterrupts = true, uint32_t defaultTimeout=0xFFFFFFFF);
 	void enableInterrupts(bool enableTimeoutInterrupt=true, bool enableDataInterrupt=true);
 
-	unsigned long read(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long read8(uint8_t addr, uint8_t *data, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write(uint8_t addr, uint8_t *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write8(uint8_t addr, uint8_t data, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long read(uint8_t addr, void *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long read8(uint8_t addr, uint8_t *data, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write(uint8_t addr, const void *buf, int count, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write8(uint8_t addr, uint8_t data, bool sendStartCondition=true, bool sendStopCondition=true);
 
-	unsigned long writeRead(
+	virtual unsigned long writeRead(
 		uint8_t addr,
 		uint8_t *writeBuf, uint8_t writeCount,
 		uint8_t *readBuf, uint8_t readCount,
@@ -92,20 +77,20 @@ public:
 		bool sendStopCondition=true
 	);
 
-	unsigned long write8read(uint8_t addr, uint8_t writeData, uint8_t *readBuf, int readCount, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long  write8read8(uint8_t addr, uint8_t data_w, uint8_t *data_r, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write8read(uint8_t addr, uint8_t writeData, uint8_t *readBuf, int readCount, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long  write8read8(uint8_t addr, uint8_t data_w, uint8_t *data_r, bool sendStartCondition=true, bool sendStopCondition=true);
 
-	unsigned long read16(uint8_t addr, uint16_t *data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long read32(uint8_t addr, uint32_t *data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write16(uint8_t addr, uint16_t data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write32(uint8_t addr, uint32_t data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long read16(uint8_t addr, uint16_t *data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long read32(uint8_t addr, uint32_t *data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write16(uint8_t addr, uint16_t data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write32(uint8_t addr, uint32_t data, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
 
-	unsigned long write8read16(uint8_t addr, uint8_t data_w, uint16_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write8read32(uint8_t addr, uint8_t data_w, uint32_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write16read(uint8_t addr, uint16_t writeData, uint8_t *readBuf, int readCount, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write16read8(uint16_t addr,  uint16_t data_w, uint8_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write16read16(uint16_t addr, uint16_t data_w, uint16_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
-	unsigned long write16read32(uint16_t addr, uint16_t data_w, uint32_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write8read16(uint8_t addr, uint8_t data_w, uint16_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write8read32(uint8_t addr, uint8_t data_w, uint32_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write16read(uint8_t addr, uint16_t writeData, uint8_t *readBuf, int readCount, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write16read8(uint16_t addr,  uint16_t data_w, uint8_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write16read16(uint16_t addr, uint16_t data_w, uint16_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
+	virtual unsigned long write16read32(uint16_t addr, uint16_t data_w, uint32_t *data_r, byteorder_t byteorder=byteorder_big_endian, bool sendStartCondition=true, bool sendStopCondition=true);
 };
 
 #endif /* I2CCONTROLLER_H_ */

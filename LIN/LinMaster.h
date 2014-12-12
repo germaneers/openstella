@@ -31,7 +31,9 @@ private:
 
 protected:
 	virtual void execute(void) = 0;
+	bool receiveFrame(uint8_t id, void* data, uint8_t len);
 	void sendIdAndDelay(uint8_t id, uint32_t delay);
+
 public:
 	LinMaster(UARTController *uart, uint32_t baudrate, GPIOPin rxPin, GPIOPin txPin);
 	void setup();

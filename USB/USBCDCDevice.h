@@ -46,6 +46,13 @@ public:
 	virtual unsigned long RxHandler(void *pvCBData, unsigned long  ulEvent, unsigned long  ulMsgData, void *pvMsgData);
 	virtual unsigned long TxHandler(void *pvCBData, unsigned long  ulEvent, unsigned long  ulMsgData, void *pvMsgData);
 
+	void setDeviceId(uint16_t vid, uint16_t pid);
+	void setManufacturerString(const char *s);
+	void setProductString(const char *s);
+	void setSerialNumberString(const char *s);
+	void setControlInterfaceDescString(const char *s);
+	void setConfigDescString(const char *s);
+
 	int  readBuffer(uint8_t *buf, uint32_t bufferSize, uint32_t timeout=0xFFFFFFFF);
 	int  readString(char *buf, uint32_t bufferSize, uint32_t timeout=0xFFFFFFFF);
 	int  getChar(uint32_t timeout=0xFFFFFFFF);

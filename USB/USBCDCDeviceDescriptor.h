@@ -65,11 +65,11 @@ public:
 
 	virtual void setDeviceId(uint16_t vid, uint16_t pid) { data.usVID = vid; data.usPID=pid; }
 	virtual void setPowerConfig(uint16_t max_power_ma, power_attributes_t attr) { data.usMaxPowermA = max_power_ma; data.ucPwrAttributes=attr; }
-	virtual void setManufacturerString(const char *s) { setDescriptorString(1, makeDescriptorString(s)); }
-	virtual void setProductString(const char *s) { setDescriptorString(2, makeDescriptorString(s)); }
-	virtual void setSerialNumberString(const char *s) { setDescriptorString(3, makeDescriptorString(s)); }
-	virtual void setControlInterfaceDescString(const char *s) { setDescriptorString(4, makeDescriptorString(s)); }
-	virtual void setConfigDescString(const char *s) { setDescriptorString(5, makeDescriptorString(s)); }
+	virtual void setManufacturerString(const char *s) { setDescriptorString(1, s); }
+	virtual void setProductString(const char *s) { setDescriptorString(2, s); }
+	virtual void setSerialNumberString(const char *s) { setDescriptorString(3, s); }
+	virtual void setControlInterfaceDescString(const char *s) { setDescriptorString(4, s); }
+	virtual void setConfigDescString(const char *s) { setDescriptorString(5, s); }
 
 	virtual void setPrivateData(void *d) { data.psPrivateCDCSerData = (tCDCSerInstance*)d; }
 	virtual void *getPrivateData() { return data.psPrivateCDCSerData; }

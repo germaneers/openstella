@@ -22,9 +22,9 @@
  */
 
 #include "GPIO.h"
-#include <freertos/include/FreeRTOSConfig.h>
 #include <StellarisWare/inc/hw_types.h>
 #include <StellarisWare/inc/hw_memmap.h>
+#include <StellarisWare/inc/hw_gpio.h>
 #include <StellarisWare/inc/hw_ints.h>
 #include <StellarisWare/driverlib/rom.h>
 #include <StellarisWare/driverlib/rom_map.h>
@@ -54,6 +54,33 @@ void GPIOPort::enablePeripheral(void) {
 
 void GPIOPort::disablePeripheral(void) {
 	MAP_SysCtlPeripheralDisable(_periph);
+}
+
+
+bool GPIOPin::unlockNmiPin()
+{
+	bool unlock_ok;
+	GPIO::B.enablePeripheral();
+
+	HWREG(GPIO_PORTB_BASE + GPIO_O_LOCK) = GPIO_LOCK_KEY;
+	unlock_ok = (HWREG(GPIO_PORTB_BASE + GPIO_O_LOCK)==GPIO_LOCK_UNLOCKED);
+
+	if (!unlock_ok) {
+		HWREG(GPIO_PORTB_BASE + GPIO_O_LOCK) = GPIO_LOCK_KEY_DD;
+		unlock_ok = (HWREG(GPIO_PORTB_BASE + GPIO_O_LOCK)==GPIO_LOCK_UNLOCKED);
+	}
+
+	if (unlock_ok) {
+		HWREG(GPIO_PORTB_BASE + GPIO_O_CR) = 0x80;
+	}
+
+	return unlock_ok;
+}
+
+void GPIOPin::lockNmiPin()
+{
+	GPIO::B.enablePeripheral();
+	HWREG(GPIO_PORTB_BASE + GPIO_O_LOCK) = 0;
 }
 
 void GPIOPort::configurePins(uint8_t pins, GPIOPin::mode_t cfg) {
@@ -183,10 +210,10 @@ void GPIOPort::disableADCTriggerPins(uint8_t pins) {
 	GPIOADCTriggerDisable(_base, pins);
 }
 
-void GPIOPort::registerInterruptHandler(void(*intHandler)(void))
+void GPIOPort::registerInterruptHandler(void(*intHandler)(void), uint8_t priority)
 {
 	GPIOPortIntRegister(_base, intHandler);
-	IntPrioritySet(getInterruptNumber(), configMAX_SYSCALL_INTERRUPT_PRIORITY);
+	MAP_IntPrioritySet(getInterruptNumber(), priority);
 }
 
 void GPIOPort::unregisterInterruptHandler()
@@ -214,6 +241,18 @@ inline uint32_t GPIOPort::getInterruptNumber()
 	return 0;
 }
 
+GPIOPin GPIOPort::getPin(uint8_t pin)  {
+	return GPIOPin( _portNumber, pin );
+}
+
+GPIOPin GPIOPort::operator[] (uint8_t pin) {
+	return GPIOPin( _portNumber, pin );
+}
+
+uint32_t GPIOPort::getBase() {
+	return _base;
+}
+
 
 
 
@@ -223,6 +262,19 @@ GPIOPin::GPIOPin(uint8_t port, uint8_t pin) {
 GPIOPin::GPIOPin() {
 	_port_pin = 0xFF;
 }
+
+bool GPIOPin::isValid() {
+	return _port_pin!=0xFF;
+}
+
+bool GPIOPin::operator==(const GPIOPin &other) const {
+	return other._port_pin == _port_pin;
+}
+
+bool GPIOPin::operator!=(const GPIOPin &other) const {
+	return other._port_pin != _port_pin;
+}
+
 
 GPIOPort *GPIOPin::getPort() {
 	switch (_port_pin >> 4) {
@@ -318,6 +370,11 @@ void GPIOPin::set(bool b) {
 		setHigh();
 	else
 		setLow();
+}
+
+void GPIOPin::toggle()
+{
+	set(isLow());
 }
 
 void GPIOPin::enableDMATrigger() {
